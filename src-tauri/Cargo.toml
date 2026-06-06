@@ -1,0 +1,43 @@
+[package]
+name = "deploy-monitor"
+version = "0.1.0"
+description = "A Tauri App"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "deploy_monitor_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+russh = "0.46"
+russh-sftp = "2"
+argon2 = "0.5.3"
+thiserror = "2.0.18"
+anyhow = "1.0.102"
+tracing = "0.1.44"
+which = "8.0.2"
+tokio = { version = "1.52.3", features = ["full"] }
+uuid = { version = "1.23.2", features = ["v4"] }
+chrono = { version = "0.4.45", features = ["serde"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+portable-pty = "0.9.0"
+tauri-plugin-dialog = "2.7.1"
+tauri-plugin-updater = "2.10.1"
+tauri-plugin-process = "2.3.1"
+tauri-plugin-log = "2.8.0"
+tauri-plugin-os = "2.3.2"
+sqlx = { version = "0.9.0", features = ["sqlite", "runtime-tokio", "tls-rustls-ring-native-roots", "macros", "migrate"] }
+
