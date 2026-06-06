@@ -1,0 +1,276 @@
+/* ========================
+   landing.css
+   Landing Page — DeployMonitor
+   700 × 600px fixed viewport
+   ======================== */
+
+.landing {
+  position: relative;
+  width: 100%;
+  height: calc(100vh - 36px);
+  margin-top: 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background-color: var(--bg-base);
+  padding: var(--space-6);
+  box-sizing: border-box;
+}
+
+/* ── Grid mesh overlay ── */
+.landing__mesh {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.4;
+}
+
+/* ── Content stack ── */
+.landing__content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+}
+
+/* ── Logo / mascot ── */
+.landing__logo {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  user-select: none;
+  position: relative;
+  filter: drop-shadow(0 0 12px rgba(212, 175, 55, 0.5)) drop-shadow(0 0 28px rgba(212, 175, 55, 0.25));
+  animation:
+    landing-drop-in 0.5s var(--ease-out) both,
+    landing-glow 3s ease-in-out infinite,
+    landing-float 3s ease-in-out infinite;
+}
+
+@keyframes landing-glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 12px rgba(212, 175, 55, 0.5)) drop-shadow(0 0 28px rgba(212, 175, 55, 0.25));
+  }
+  50% {
+    filter: drop-shadow(0 0 18px rgba(212, 175, 55, 0.7)) drop-shadow(0 0 40px rgba(212, 175, 55, 0.35));
+  }
+}
+
+@keyframes landing-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+
+/* ── App name ── */
+.landing__name {
+  font-family: var(--font-title);
+  font-size: 36px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--text-primary);
+  user-select: none;
+  animation: landing-fade-up 0.45s var(--ease-out) 0.08s both;
+}
+
+.landing__name-accent {
+  color: var(--color-gold);
+}
+
+/* ── Tagline ── */
+.landing__tagline {
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  font-weight: 400;
+  color: var(--text-secondary);
+  text-align: center;
+  line-height: 1.6;
+  max-width: 380px;
+  animation: landing-fade-up 0.45s var(--ease-out) 0.16s both;
+}
+
+.landing__tagline-quote {
+  color: var(--text-muted);
+  font-family: var(--font-display);
+}
+
+/* ── Divider ── */
+.landing__divider {
+  width: 64px;
+  height: 1px;
+  background: var(--border-default);
+  margin: var(--space-2) 0;
+  animation: landing-fade-up 0.45s var(--ease-out) 0.22s both;
+}
+
+/* ── Shortcut cards grid ── */
+.landing__shortcuts {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3);
+  width: 100%;
+  max-width: 480px;
+  animation: landing-fade-up 0.5s var(--ease-out) 0.3s both;
+  user-select: none;
+}
+
+.landing__shortcut-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+  cursor: default;
+}
+
+.landing__shortcut-card:hover {
+  background: var(--bg-overlay);
+  border-color: var(--border-default);
+}
+
+.landing__shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.landing__shortcut-icon {
+  color: var(--color-gold);
+  flex-shrink: 0;
+  margin-right: var(--space-1);
+}
+
+.landing__shortcut-label {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  line-height: 1;
+}
+
+.landing__shortcut-keys {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.landing__shortcut-run {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+
+.landing__shortcut-run:hover {
+  background: var(--color-gold);
+  color: var(--color-ink);
+  border-color: var(--color-gold);
+}
+
+/* ── KBD chip ── */
+.kbd {
+  font-family: var(--font-code);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-code);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 2px 7px;
+  line-height: 1.6;
+  display: inline-block;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.kbd-sep {
+  font-family: var(--font-code);
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+/* ── Hint text ── */
+.landing__hint {
+  user-select: none;
+  margin-top: var(--space-4);
+  font-family: var(--font-title);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-gold);
+  background: transparent;
+  border: none;
+  animation:
+    landing-fade-up 0.5s var(--ease-out) 0.4s both,
+    landing-pulse 2.5s ease-in-out 1s infinite;
+}
+
+/* ── Animations ── */
+@keyframes landing-drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes landing-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes landing-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.3; }
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .landing__logo,
+  .landing__name,
+  .landing__tagline,
+  .landing__divider,
+  .landing__shortcuts,
+  .landing__hint {
+    animation: none;
+  }
+  .landing__logo {
+    filter: drop-shadow(0 0 12px rgba(212, 175, 55, 0.5)) drop-shadow(0 0 28px rgba(212, 175, 55, 0.25));
+  }
+}

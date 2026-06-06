@@ -13,8 +13,11 @@
     "windows": [
       {
         "title": "deploy-monitor",
-        "width": 800,
-        "height": 600
+        "width": 700,
+        "height": 600,
+        "decorations": false,
+        "resizable": false,
+        "center": true
       }
     ],
     "security": {

@@ -1,0 +1,35 @@
+.semaphore {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.semaphore__btn {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    transition: filter 0.15s ease, opacity 0.15s ease;
+}
+
+.semaphore__btn:hover {
+    filter: brightness(1.15);
+}
+
+.semaphore__btn:active {
+    opacity: 0.8;
+}
+
+.semaphore__btn--close {
+    background-color: #FF6B00;
+}
+
+.semaphore__btn--minimize {
+    background-color: #FFC857;
+}
+
+.semaphore__btn--maximize {
+    background-color: #E6D12C;
+}

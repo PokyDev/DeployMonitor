@@ -1,51 +1,74 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import React, { useEffect } from 'react';
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+import './styles/tokens.css';
+import './styles/global.css';
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+import Titlebar from './layout/mojo/titlebar';
+import Landing from './pages/landing/landing';
+import { useNavStore } from './stores/use-nav-store';
 
-  return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+// ── Gestión de tema ───────────────────────────────────────────────────────────
 
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
+type Theme = 'system' | 'light' | 'dark';
 
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
-  );
+function applyTheme(theme: Theme): void {
+  const root = document.documentElement;
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const resolved = theme === 'system' ? (prefersDark ? 'dark' : 'light') : theme;
+
+  root.classList.add('theme-transitioning');
+  root.setAttribute('data-theme', resolved);
+
+  const ms = parseInt(getComputedStyle(root).getPropertyValue('--duration-slow')) || 350;
+  setTimeout(() => root.classList.remove('theme-transitioning'), ms + 50);
 }
 
-export default App;
+function useTheme() {
+  const [theme, setTheme] = React.useState<Theme>(() => {
+    return (localStorage.getItem('dm-theme') as Theme) || 'system';
+  });
+
+  useEffect(() => {
+    applyTheme(theme);
+    localStorage.setItem('dm-theme', theme);
+  }, [theme]);
+
+  useEffect(() => {
+    if (theme !== 'system') return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = () => applyTheme('system');
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, [theme]);
+
+  const toggle = () => {
+    setTheme(() => {
+      const currentActual = document.documentElement.getAttribute('data-theme');
+      return currentActual === 'dark' ? 'light' : 'dark';
+    });
+  };
+
+  return { theme, toggle };
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+
+export default function App() {
+  const { toggle } = useTheme();
+  const { view, phase } = useNavStore();
+
+  const transitionClass =
+    phase === 'exit'  ? 'view-exit'  :
+    phase === 'enter' ? 'view-enter' :
+    '';
+
+  return (
+    <>
+      <Titlebar onThemeToggle={toggle} />
+
+      <div className={`view-wrapper ${transitionClass}`}>
+        {view === 'landing' && <Landing />}
+      </div>
+    </>
+  );
+}
