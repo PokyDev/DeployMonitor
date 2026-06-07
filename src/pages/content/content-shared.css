@@ -1,0 +1,281 @@
+/* ========================
+   content-shared.css
+   Shared primitives for dashboard sections — cards, badges, buttons, inputs.
+   Imported once by content.tsx; classes are reused across elements/*.
+   ======================== */
+
+.dm-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── Section header bar ── */
+.dm-section-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.dm-section-title {
+  font-family: var(--font-title);
+  font-weight: 600;
+  font-size: 17px;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.dm-section-desc {
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.dm-eyebrow {
+  font-family: var(--font-title);
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.dm-eyebrow svg {
+  color: var(--color-gold);
+}
+
+.dm-label {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+/* ── Buttons ── */
+.dm-btn {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 9px 16px;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  border: 1px solid var(--border-default);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  white-space: nowrap;
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out),
+    transform 90ms var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
+    filter var(--duration-fast) var(--ease-out);
+}
+
+.dm-btn:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-overlay);
+}
+
+.dm-btn:active {
+  transform: scale(0.97);
+}
+
+.dm-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dm-btn svg {
+  flex: 0 0 auto;
+}
+
+.dm-btn--primary {
+  background: var(--color-gold);
+  color: var(--color-ink);
+  border-color: var(--color-gold);
+}
+
+.dm-btn--primary:hover {
+  filter: brightness(1.08);
+  box-shadow: var(--shadow-gold);
+  background: var(--color-gold);
+  border-color: var(--color-gold);
+}
+
+.dm-btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+
+.dm-btn--ghost:hover {
+  background: var(--bg-overlay);
+  color: var(--text-primary);
+  border-color: transparent;
+}
+
+.dm-btn--danger {
+  color: var(--color-error-light);
+  border-color: var(--border-default);
+  background: transparent;
+}
+
+.dm-btn--danger:hover {
+  background: rgba(196, 57, 77, 0.12);
+  border-color: var(--color-error-light);
+}
+
+.dm-btn--sm {
+  padding: 6px 11px;
+  font-size: 10px;
+}
+
+/* ── Badges ── */
+.dm-badge {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+  border-radius: var(--radius-md);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.dm-badge__pip {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
+.dm-badge__pip--pulse {
+  animation: dm-pulse-dot 1.6s ease-in-out infinite;
+}
+
+.dm-badge--normal,
+.dm-badge--success,
+.dm-badge--active {
+  background: rgba(61, 158, 104, 0.15);
+  color: var(--color-success-light);
+}
+
+.dm-badge--warning,
+.dm-badge--running {
+  background: rgba(212, 175, 55, 0.16);
+  color: var(--color-gold);
+}
+
+.dm-badge--critical,
+.dm-badge--error {
+  background: rgba(196, 57, 77, 0.16);
+  color: var(--color-error-light);
+}
+
+.dm-badge--idle {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+}
+
+/* ── Inputs ── */
+.dm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.dm-input-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: stretch;
+}
+
+.dm-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-base);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 9px 12px;
+  color: var(--text-primary);
+  font-family: var(--font-code);
+  font-size: 12.5px;
+  transition: border-color var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.dm-input:focus {
+  outline: none;
+  border-color: var(--color-gold);
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.14);
+}
+
+.dm-input::placeholder {
+  color: var(--text-muted);
+}
+
+.dm-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-default);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out), background-color var(--duration-fast) var(--ease-out);
+}
+
+.dm-icon-btn:hover {
+  background: var(--bg-overlay);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+/* ── Animations ── */
+@keyframes dm-pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.35; transform: scale(0.85); }
+}
+
+@keyframes dm-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes dm-flash-success {
+  0%   { box-shadow: 0 0 0 0 rgba(61, 158, 104, 0); }
+  30%  { box-shadow: 0 0 0 2px rgba(61, 158, 104, 0.5); }
+  100% { box-shadow: 0 0 0 0 rgba(61, 158, 104, 0); }
+}
+
+.dm-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  animation: dm-fade-in var(--duration-base) var(--ease-out) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dm-badge__pip--pulse,
+  .dm-section {
+    animation: none;
+  }
+}

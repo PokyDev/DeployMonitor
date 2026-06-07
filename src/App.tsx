@@ -5,6 +5,7 @@ import './styles/global.css';
 
 import Titlebar from './layout/mojo/titlebar';
 import Landing from './pages/landing/landing';
+import Content from './pages/content/content';
 import { useNavStore } from './stores/use-nav-store';
 
 // ── Gestión de tema ───────────────────────────────────────────────────────────
@@ -68,6 +69,7 @@ export default function App() {
 
       <div className={`view-wrapper ${transitionClass}`}>
         {view === 'landing' && <Landing />}
+        {view === 'dashboard' && <Content />}
       </div>
     </>
   );

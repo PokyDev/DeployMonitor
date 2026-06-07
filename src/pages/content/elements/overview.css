@@ -1,0 +1,178 @@
+/* ========================
+   overview.css
+   Overview section — connection panel + system metrics
+   ======================== */
+
+.overview-conn {
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  transition: box-shadow var(--duration-base) var(--ease-out);
+}
+
+.overview-conn--flash {
+  animation: dm-flash-success 1.2s ease-out;
+}
+
+.overview-conn__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.overview-conn__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.overview-conn__field {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.overview-conn__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: 2px;
+}
+
+.overview-conn__log {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-3) var(--space-4);
+  background: #0D0D0D;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 1.6;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.overview-conn__log-line {
+  color: #D4D0C4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  animation: dm-fade-in 200ms ease both;
+}
+
+/* ── Metrics ── */
+.overview-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.overview-metrics__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.overview-metrics__sub {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.overview-metrics__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+.overview-metric {
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.overview-metric__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.overview-metric__label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.overview-metric__label svg {
+  color: var(--text-secondary);
+}
+
+.overview-metric__value-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.overview-metric__value {
+  font-family: var(--font-title);
+  font-weight: 500;
+  font-size: 27px;
+  line-height: 1;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.overview-metric__unit {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-left: 3px;
+}
+
+.overview-metric__detail {
+  font-family: var(--font-code);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.overview-metric__chart {
+  height: 56px;
+  background: rgba(212, 175, 55, 0.05);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.overview-metric__bar {
+  height: 4px;
+  border-radius: 3px;
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+.overview-metric__bar i {
+  display: block;
+  height: 100%;
+  background: var(--color-gold);
+  border-radius: 3px;
+  transition: width 600ms var(--ease-out);
+}
+
+@media (max-width: 760px) {
+  .overview-conn__field {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .overview-metrics__grid {
+    grid-template-columns: 1fr;
+  }
+}
