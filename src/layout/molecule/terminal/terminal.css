@@ -5,6 +5,7 @@
    ======================== */
 
 .terminal {
+  position: relative;
   flex: 0 0 auto;
   border-top: 1px solid var(--border-default);
   background: #0D0D0D;
@@ -19,6 +20,29 @@
   height: 280px;
 }
 
+.terminal--resizing {
+  transition: none;
+}
+
+/* Absolutely positioned so it overlays the top edge — a flex item pulled up
+   via negative margin would be clipped by the panel's `overflow: hidden`. */
+.terminal__resize-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 5px;
+  cursor: row-resize;
+  background: transparent;
+  z-index: 2;
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+.terminal__resize-handle:hover,
+.terminal--resizing .terminal__resize-handle {
+  background: rgba(212, 175, 55, 0.35);
+}
+
 .terminal__head {
   flex: 0 0 41px;
   height: 41px;
@@ -26,14 +50,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 0 12px;
-  cursor: pointer;
   background: var(--bg-surface);
-  border: none;
   border-bottom: 1px solid transparent;
-  width: 100%;
-  font: inherit;
-  color: inherit;
-  text-align: left;
 }
 
 .terminal--expanded .terminal__head {
@@ -104,56 +122,78 @@
 .terminal__scroll {
   flex: 1;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   padding: 12px 14px;
   font-family: var(--font-code);
   font-size: 13px;
   line-height: 1.55;
+  outline: none;
+  position: relative;
+  cursor: text;
 }
 
-.terminal__line {
+.terminal__scroll:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.terminal__output {
+  margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
   color: #D4D0C4;
-  animation: terminal-line-in 200ms ease both;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
 }
 
-.terminal__input-row {
-  flex: 0 0 auto;
+/* Caret marking the user's input position. Blinks at rest to draw the eye to
+   it; held solid (via --cursor-solid) while the user types/navigates so it
+   doesn't fight for attention with what they're actively doing. Excluded
+   from selection so it never ends up in a copied command. */
+.terminal__cursor {
+  user-select: none;
+  color: var(--color-gold);
+  animation: terminal-cursor-blink 1s step-end infinite;
+}
+
+.terminal__scroll--cursor-solid .terminal__cursor {
+  animation: none;
+  opacity: 1;
+}
+
+@keyframes terminal-cursor-blink {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+
+/* Floating "Copiar" menu shown on right-click when text is selected. */
+.terminal__context-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 132px;
+  padding: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.terminal__context-menu-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 14px 12px;
-}
-
-.terminal__prompt {
-  font-family: var(--font-code);
-  font-size: 13px;
-  color: var(--color-gold);
-  flex: 0 0 auto;
-}
-
-.terminal__input {
-  flex: 1;
-  background: transparent;
+  width: 100%;
+  padding: 7px 10px;
   border: none;
-  outline: none;
-  font-family: var(--font-code);
-  font-size: 13px;
-  color: #D4D0C4;
-  caret-color: var(--color-gold);
+  background: transparent;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
 }
 
-.terminal__input::placeholder {
-  color: var(--text-muted);
-}
-
-@keyframes terminal-line-in {
-  from { opacity: 0; transform: translateY(2px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .terminal__line {
-    animation: none;
-  }
+.terminal__context-menu-item:hover {
+  background: var(--bg-overlay);
 }

@@ -6,7 +6,6 @@ import { useMockConnection } from '../../hooks/use-mock-connection';
 import { useMockMetrics } from '../../hooks/use-mock-metrics';
 import { useMockScripts } from '../../hooks/use-mock-scripts';
 import { useMockHistory } from '../../hooks/use-mock-history';
-import { useMockTerminal } from '../../hooks/use-mock-terminal';
 import Overview from './elements/overview';
 import Monitor from './elements/monitor';
 import Scripts from './elements/scripts';
@@ -19,18 +18,19 @@ export default function Content() {
   const activeSection = useDashboardStore((s) => s.activeSection);
   const terminalExpanded = useDashboardStore((s) => s.terminalExpanded);
   const toggleTerminal = useDashboardStore((s) => s.toggleTerminal);
+  const setTerminalExpanded = useDashboardStore((s) => s.setTerminalExpanded);
   const goToLanding = useNavStore((s) => s.goToLanding);
 
   const connection = useMockConnection();
   const metrics = useMockMetrics(connection.isOnline);
   const scripts = useMockScripts();
   const history = useMockHistory();
-  const terminal = useMockTerminal();
 
   const runningScripts = scripts.execution?.status === 'running' ? 1 : 0;
 
   const handleLogout = () => {
     connection.disconnect();
+    setTerminalExpanded(false);
     goToLanding();
   };
 
@@ -67,10 +67,6 @@ export default function Content() {
         <Terminal
           expanded={terminalExpanded}
           onToggleExpanded={toggleTerminal}
-          lines={terminal.lines}
-          onClear={terminal.clear}
-          onRunCommand={terminal.runCommand}
-          active={connection.isOnline}
         />
       </div>
     </div>
