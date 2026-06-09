@@ -46,8 +46,14 @@ export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) 
 
   const outputChunks = useTerminalStore((s) => s.outputChunks);
   const isRunning = useTerminalStore((s) => s.isRunning);
+  const isLocked = useTerminalStore((s) => s.isLocked);
 
-  const html = useMemo(() => ansiToHtml(outputChunks.join(''), isRunning), [outputChunks, isRunning]);
+  // Hide the cursor while locked so the blinking caret doesn't compete with
+  // the "press any key" message.
+  const html = useMemo(
+    () => ansiToHtml(outputChunks.join(''), isRunning && !isLocked),
+    [outputChunks, isRunning, isLocked],
+  );
 
   const markCursorActive = () => {
     setCursorSolid(true);
@@ -149,6 +155,14 @@ export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) 
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    // While locked (post-cls message): any key unlocks the terminal.
+    // The key itself is discarded — PTY receives \r to redraw a fresh prompt.
+    if (isLocked) {
+      e.preventDefault();
+      void useTerminalStore.getState().unlock();
+      return;
+    }
+
     const isCopyShortcut = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c';
     if (isCopyShortcut) {
       const selected = getSelectedText();

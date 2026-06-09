@@ -222,5 +222,31 @@ export function extractClearScreen(chunk: string): { cleared: boolean; remainder
     remainder = chunk.slice(match.index + match[0].length);
   }
 
+  if (cleared) {
+    remainder = stripBlankTailLines(remainder);
+  }
+
   return { cleared, remainder };
+}
+
+/**
+ * Strips trailing lines that carry no visible text — only ANSI escape
+ * sequences, carriage returns, and whitespace. PSReadLine emits these after
+ * `cls` to "fill" the physical screen rows so its internal cursor lands at
+ * the bottom row. Our scrollback model has no screen grid, so they would
+ * otherwise become real blank lines pushing the prompt down.
+ */
+export function stripBlankTailLines(s: string): string {
+  if (!s) return s;
+  const lines = s.split('\n');
+  let lastVisible = -1;
+  for (let i = 0; i < lines.length; i++) {
+    // Remove CSI sequences (\x1b[...X) and lone ESC sequences, then \r
+    const bare = lines[i]
+      .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
+      .replace(/\x1b./g, '')
+      .replace(/\r/g, '');
+    if (/\S/.test(bare)) lastVisible = i;
+  }
+  return lastVisible >= 0 ? lines.slice(0, lastVisible + 1).join('\n') : '';
 }
