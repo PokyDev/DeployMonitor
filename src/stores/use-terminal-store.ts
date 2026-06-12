@@ -9,6 +9,9 @@ let _terminalListening = false;
 type TerminalStore = {
   terminal: Terminal | null;
   isRunning: boolean;
+  /** True while the welcome "lock screen" is shown — pty:data is buffered, not rendered. */
+  locked: boolean;
+  pendingOutput: string[];
   init: () => Promise<void>;
   setTerminal: (term: Terminal | null) => void;
   start: (cols: number, rows: number) => Promise<void>;
@@ -16,17 +19,25 @@ type TerminalStore = {
   resize: (cols: number, rows: number) => Promise<void>;
   stop: () => Promise<void>;
   clear: () => void;
+  /** Reveals the real shell output buffered while the lock screen was shown. */
+  unlock: () => void;
 };
 
 export const useTerminalStore = create<TerminalStore>((set, get) => ({
   terminal: null,
   isRunning: false,
+  locked: true,
+  pendingOutput: [],
 
   init: async () => {
     if (_terminalListening) return;
     _terminalListening = true;
 
     await listen<string>('pty:data', (event) => {
+      if (get().locked) {
+        get().pendingOutput.push(event.payload);
+        return;
+      }
       get().terminal?.write(event.payload);
     });
   },
@@ -57,5 +68,13 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
   clear: () => {
     get().terminal?.clear();
     void ptyWrite('cls\r');
+  },
+
+  unlock: () => {
+    const { terminal, pendingOutput } = get();
+    if (pendingOutput.length > 0) {
+      terminal?.write(pendingOutput.join(''));
+    }
+    set({ locked: false, pendingOutput: [] });
   },
 }));

@@ -5,6 +5,7 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { buildTheme } from '../../../lib/terminal-theme';
+import { buildWelcomeLine1, buildWelcomeLine2, interpolateOpacity } from '../../../lib/terminal-welcome';
 import { useTerminalStore } from '../../../stores/use-terminal-store';
 import './terminal.css';
 
@@ -24,11 +25,14 @@ const DEFAULT_ROWS = 24;
 const DEFAULT_HEIGHT = 280;
 const MIN_HEIGHT = 160;
 const MAX_HEIGHT_RATIO = 0.7;
+const WELCOME_PULSE_PERIOD_MS = 2000;
+const WELCOME_PULSE_INTERVAL_MS = 50;
 
 export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const welcomePulseRef = useRef<number | null>(null);
 
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [isResizing, setIsResizing] = useState(false);
@@ -44,12 +48,14 @@ export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) 
     const container = containerRef.current;
     if (!container) return;
 
+    const startLocked = useTerminalStore.getState().locked;
+
     const term = new XTerm({
       fontFamily: "'JetBrains Mono', monospace",
       fontSize: 13,
       lineHeight: 1.55,
       scrollback: 5000,
-      cursorBlink: true,
+      cursorBlink: !startLocked,
       theme: buildTheme(),
     });
     const fitAddon = new FitAddon();
@@ -61,7 +67,30 @@ export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) 
     fitAddonRef.current = fitAddon;
     useTerminalStore.getState().setTerminal(term);
 
+    // Lock screen: hide all real shell output behind a welcome message until
+    // the user presses any key. pty:data is buffered by the store meanwhile.
+    if (startLocked) {
+      term.write(`\x1b[2J\x1b[H${buildWelcomeLine1()}\r\n${buildWelcomeLine2(interpolateOpacity(1))}`);
+
+      const start = performance.now();
+      welcomePulseRef.current = window.setInterval(() => {
+        const elapsed = performance.now() - start;
+        const t = (Math.sin((elapsed / WELCOME_PULSE_PERIOD_MS) * 2 * Math.PI) + 1) / 2;
+        term.write(buildWelcomeLine2(interpolateOpacity(t)));
+      }, WELCOME_PULSE_INTERVAL_MS);
+    }
+
     term.onData((data) => {
+      if (useTerminalStore.getState().locked) {
+        if (welcomePulseRef.current !== null) {
+          window.clearInterval(welcomePulseRef.current);
+          welcomePulseRef.current = null;
+        }
+        term.write(`${buildWelcomeLine2(interpolateOpacity(1))}\r\n\r\n`);
+        term.options.cursorBlink = true;
+        useTerminalStore.getState().unlock();
+        return;
+      }
       void useTerminalStore.getState().write(data);
     });
 
@@ -81,6 +110,10 @@ export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) 
     });
 
     return () => {
+      if (welcomePulseRef.current !== null) {
+        window.clearInterval(welcomePulseRef.current);
+        welcomePulseRef.current = null;
+      }
       useTerminalStore.getState().setTerminal(null);
       term.dispose();
       termRef.current = null;
