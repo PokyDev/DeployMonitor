@@ -38,6 +38,7 @@ Architecture and stack for DeployMonitor / SSH Manager.
 | Icons | Lucide React | latest |
 | Charts | Recharts | 2.x |
 | Styling | CSS Modules + CSS custom properties | — |
+| Terminal rendering | `@xterm/xterm` + `@xterm/addon-fit` | latest |
 
 **Why TypeScript over JavaScript:** Stronger alignment with Rust's typed contracts. Tauri `invoke()` return types can be shared or mirrored precisely. Async/await patterns with `Promise<T>` eliminate a class of runtime errors that were surfacing in the PTY/SSH integration.
 
@@ -66,6 +67,8 @@ Architecture and stack for DeployMonitor / SSH Manager.
 
 **`russh` over `libssh2-sys`:** Rust-pure, no C FFI, no cross-compilation issues.
 **`argon2` over bcrypt:** OWASP-recommended, hardware-attack resistant.
+
+**`@xterm/xterm` over a custom ANSI/VT100 parser (2026-06-11):** The frontend originally rendered PTY/SSH output through a hand-written SGR-only ANSI-to-HTML converter. That converter cannot interpret cursor-positioning or alt-screen sequences, so any interactive program (`vim`, `htop`, `less`, `nano`, package-manager menus) renders as garbled text instead of a redrawn screen. `portable-pty` and the `russh` PTY channel are unaffected — they still emit raw byte streams. Only the frontend consumer changed. See `spec-terminal.md` § "Architecture Decision: xterm.js" for the full rationale and migration notes.
 
 ---
 

@@ -28,118 +28,113 @@ terminal-panel.tsx
        └── listen("ssh:pty-data") ← SSH PTY output chunks
 ```
 
-Both output events feed the same ANSI-to-HTML pipeline and the same output chunk array.
+Both output events feed the same `xterm.js` `Terminal` instance (see decision below).
+
+---
+
+## Architecture Decision: xterm.js (2026-06-11)
+
+**Decision:** The frontend renders PTY/SSH output through `@xterm/xterm` + `@xterm/addon-fit`, not a custom ANSI parser. The Rust backend (`portable-pty`, `russh` PTY channel, all Tauri commands/events in this spec) is **unchanged** — it still emits raw byte chunks on `pty:data` / `ssh:pty-data`. Only the frontend consumer of those events changed.
+
+**Why this changed:** The previous implementation parsed only SGR color codes (`SGR_MAP`) into HTML. It had no support for cursor positioning or the alt-screen buffer, so any interactive program — `vim`, `htop`, `less`, `nano`, `top`, package-manager menus — rendered as scrolling garbage instead of a redrawn screen. Building a complete VT100/VT220 emulator from scratch was assessed as a multi-month effort, which blocks the goal of shipping a usable terminal for the beta. `xterm.js` is the same approach VS Code, Hyper, and Theia use (mature VT100/VT220 emulator + PTY backend) and is a pure JS/DOM library — fully compatible with Tauri's webview (WebView2 / WebKitGTK), no native bindings required.
+
+**What this means for an agent working in this codebase:**
+- If you see references to `ANSI-to-HTML converter`, `SGR_MAP`, `outputChunks` array, or `keyToEscapeSequence` in old code/commits, these are **superseded** — do not extend them, migrate them to the `xterm.js` patterns below.
+- Do not reintroduce a custom ANSI/VT100 parser. `xterm.js` is an intentional, accepted third-party dependency for this specific purpose — it does not violate the "no third-party ANSI library" guidance that predates this decision (that guidance is now obsolete).
+- The same `Terminal` component (in read-only mode) is the preferred renderer for streamed script-automation output (see "Reuse for script automation output" below) — do not build a second ANSI renderer for that feature.
 
 ---
 
 ## Frontend: `terminal-panel.tsx`
 
-### Input handling
+### Rendering engine: xterm.js
 
-The terminal container is a `<div>` with `tabIndex={0}`, never a `<textarea>` or `<input>`. Capture raw keyboard events at the `keydown` level.
+The terminal container hosts one `@xterm/xterm` `Terminal` instance per session — the local PTY, each SSH session, and each read-only script-output viewer all get their own instance. The container is still a plain `<div>` (xterm.js attaches its own canvas/DOM nodes to it via `term.open()`) — never a `<textarea>` or `<input>`.
 
 ```typescript
-const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-  e.preventDefault()
-  const seq = keyToEscapeSequence(e)
-  if (seq) {
-    invoke('pty_write', { data: seq }) // or ssh_pty_write for SSH mode
-  }
-}
+import { Terminal } from '@xterm/xterm'
+import { FitAddon } from '@xterm/addon-fit'
+import '@xterm/xterm/css/xterm.css'
+
+const term = new Terminal({
+  fontFamily: 'JetBrains Mono',
+  fontSize: 13,
+  lineHeight: 1.5,
+  scrollback: 5000,
+  disableStdin: readOnly, // true for script-output viewers
+  theme: buildTheme(),    // see Theming below
+})
+const fitAddon = new FitAddon()
+term.loadAddon(fitAddon)
+term.open(containerRef.current)
+fitAddon.fit()
 ```
 
-### Escape sequence mapping
+Dispose on unmount: `term.dispose()`. Without this, repeated mount/unmount (route changes, tab close) leaks listeners and DOM nodes.
 
-Required mappings for a functional shell (autocomplete, history, Ctrl+C, arrow keys):
+### Input handling
+
+xterm.js owns keyboard capture once `term.open()` is called. Do not attach a manual `keydown` handler or an escape-sequence map — xterm.js's input encoder already translates arrow keys, Ctrl+combinations, function keys, etc. into the correct VT sequences.
 
 ```typescript
-function keyToEscapeSequence(e: React.KeyboardEvent): string | null {
-  // Control sequences
-  if (e.ctrlKey) {
-    const code = e.key.toLowerCase().charCodeAt(0) - 96
-    if (code > 0 && code < 32) return String.fromCharCode(code)
-  }
-
-  const map: Record<string, string> = {
-    Enter: '\r',
-    Backspace: '\x7f',
-    Tab: '\t',
-    Escape: '\x1b',
-    ArrowUp: '\x1b[A',
-    ArrowDown: '\x1b[B',
-    ArrowRight: '\x1b[C',
-    ArrowLeft: '\x1b[D',
-    Home: '\x1b[H',
-    End: '\x1b[F',
-    Delete: '\x1b[3~',
-    PageUp: '\x1b[5~',
-    PageDown: '\x1b[6~',
-    F1: '\x1bOP', F2: '\x1bOQ', F3: '\x1bOR', F4: '\x1bOS',
-    F5: '\x1b[15~', F6: '\x1b[17~', F7: '\x1b[18~', F8: '\x1b[19~',
-    F9: '\x1b[20~', F10: '\x1b[21~', F11: '\x1b[23~', F12: '\x1b[24~',
-  }
-
-  return map[e.key] ?? (e.key.length === 1 ? e.key : null)
-}
+term.onData((data) => {
+  invoke('pty_write', { data }) // or ssh_pty_write for SSH mode
+})
 ```
 
 ### Output rendering
 
 ```typescript
-// In use-terminal-store.ts
-const MAX_CHUNKS = 2000
-
-// Add incoming chunk
-set((state) => {
-  const chunks = [...state.outputChunks, chunk]
-  return { outputChunks: chunks.slice(-MAX_CHUNKS) }
+await listen<string>('pty:data', (event) => {
+  term.write(event.payload)
 })
 ```
 
-Output is rendered as HTML from the ANSI-to-HTML converter — not as raw text. Use `dangerouslySetInnerHTML` on a `<pre>` inside the terminal container.
+`term.write()` takes the raw chunk directly — there is no HTML conversion step and no manual `outputChunks` array. xterm.js's built-in VT100/VT220 parser handles cursor movement, the alt-screen buffer (`vim`, `htop`, `less`, `nano`), scrollback, and SGR color codes natively. Scrollback length is controlled by the `scrollback` option (5000 lines) — do not reintroduce a separate chunk array to cap history, it would duplicate state xterm.js already owns.
 
-### ANSI-to-HTML converter
+### Theming
 
-Minimal converter — only the SGR codes this project needs:
+Map the design system's palette to xterm.js's `ITheme` when constructing each `Terminal`. This is where the SGR-color intent from the old `SGR_MAP` now lives:
 
 ```typescript
-const SGR_MAP: Record<number, string> = {
-  0:  'color: #D4D0C4',           // reset → default text
-  1:  'font-weight: bold',
-  33: 'color: #D4AF37',           // gold — prompt, commands
-  32: 'color: #3D9E68',           // success green
-  31: 'color: #C4394D',           // error red
-  34: 'color: #2874A6',           // info blue
-  90: 'color: #555555',           // muted (dark gray)
+function buildTheme(): ITheme {
+  return {
+    background: '#0D0D0D',  // hardcoded — terminal bg is exempt from theme, per CLAUDE.md
+    foreground: '#D4D0C4',  // SGR 0 (reset/default)
+    yellow: '#D4AF37',      // SGR 33 — gold, prompt/commands
+    green: '#3D9E68',       // SGR 32 — success
+    red: '#C4394D',         // SGR 31 — error
+    blue: '#2874A6',        // SGR 34 — info
+    brightBlack: '#555555', // SGR 90 — muted
+  }
 }
 ```
 
-Do not use a third-party ANSI library — the custom converter maps SGR 33 to `#D4AF37` (gold) specifically for the design system.
+If a future theme needs to read from `tokens.css`, resolve the values via `getComputedStyle(document.documentElement)` at construction time — `ITheme` only accepts static color strings, not CSS custom properties.
 
 ### Resize handling
 
 ```typescript
 useEffect(() => {
   const observer = new ResizeObserver(() => {
-    const { cols, rows } = measureTerminalDimensions(containerRef.current)
-    invoke('pty_resize', { cols, rows })
+    fitAddon.fit()
+    const { cols, rows } = term
+    invoke('pty_resize', { cols, rows }) // or ssh_pty_resize for SSH mode
   })
   observer.observe(containerRef.current)
   return () => observer.disconnect()
 }, [])
-
-function measureTerminalDimensions(el: HTMLElement): { cols: number; rows: number } {
-  // Use a hidden char to measure monospace character dimensions
-  const charWidth = el.querySelector('.char-measure')?.getBoundingClientRect().width ?? 8
-  const charHeight = parseFloat(getComputedStyle(el).lineHeight) || 20
-  return {
-    cols: Math.floor(el.clientWidth / charWidth),
-    rows: Math.floor(el.clientHeight / charHeight),
-  }
-}
 ```
 
+`FitAddon.fit()` measures the container and resizes the `Terminal` instance internally — read the resulting `cols`/`rows` directly from `term` afterward. There is no manual character-dimension measurement.
+
+### Reuse for script automation output
+
+Script execution runs over **exec channels** (`spec-backend.md` § SSH exec channel), separate from the interactive PTY/SSH terminal above. That output is mostly linear/append-only but can still contain ANSI color codes (npm, pnpm, ansible, docker output). Reuse the same `Terminal` wrapper component in read-only mode (`disableStdin: true`, no `onData` handler, feed chunks via `term.write()`) to render it. This avoids maintaining a second ANSI renderer for script logs — one `xterm.js`-backed component serves both the interactive terminal and script output viewers.
+
 ### StrictMode guard
+
+Module-level boolean still required for event listener registration — unchanged pattern, now writing to the `Terminal` instance instead of an `outputChunks` array:
 
 ```typescript
 // Module-level — prevents double-registration in React StrictMode
@@ -151,7 +146,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
     _terminalListening = true
 
     await listen<string>('pty:data', (event) => {
-      get().appendChunk(event.payload)
+      get().terminal?.write(event.payload)
     })
   },
 }))
@@ -385,4 +380,8 @@ These are frontend-generated ANSI strings injected into the output buffer — no
 
 **SSH welcome banner:** The welcome banner (MOTD) appears on the PTY+shell channel naturally. Do not attempt to suppress it — it's part of the interactive experience.
 
-**PTY dimensions on first render:** Call `pty_resize` after the terminal container has been painted (in a `useEffect` with the container ref dependency), not during initial mount.
+**PTY dimensions on first render:** Call `pty_resize` after the terminal container has been painted (in a `useEffect` with the container ref dependency), not during initial mount. With xterm.js, call `fitAddon.fit()` first and derive `cols`/`rows` from `term` — `fit()` on a zero-size container (e.g. `display: none` parent) produces `1x1` and must be re-run once the container has real dimensions.
+
+**xterm.js CSS import:** `@xterm/xterm/css/xterm.css` must be imported once (e.g. in the terminal panel component). Without it, the terminal renders unstyled/invisible.
+
+**Terminal instance lifecycle:** Call `term.dispose()` on unmount. Each `Terminal` instance attaches DOM nodes and internal listeners to its container — skipping disposal leaks on every mount/unmount cycle (tab close, route change).

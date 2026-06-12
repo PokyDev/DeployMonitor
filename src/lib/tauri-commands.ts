@@ -10,6 +10,11 @@ export async function ptyWrite(data: string): Promise<void> {
   await invoke('pty_write', { data });
 }
 
+/** Resizes the running local PTY to match the terminal's column/row count. */
+export async function ptyResize(cols: number, rows: number): Promise<void> {
+  await invoke('pty_resize', { cols, rows });
+}
+
 /** Kills the local PTY shell process. */
 export async function ptyStop(): Promise<void> {
   await invoke('pty_stop');

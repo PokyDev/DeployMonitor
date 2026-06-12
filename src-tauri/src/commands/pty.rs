@@ -20,6 +20,11 @@ pub async fn pty_write(data: String, state: State<'_, AppState>) -> Result<(), A
 }
 
 #[tauri::command]
+pub async fn pty_resize(cols: u16, rows: u16, state: State<'_, AppState>) -> Result<(), AppError> {
+    pty_service::resize(&state, cols, rows)
+}
+
+#[tauri::command]
 pub async fn pty_stop(state: State<'_, AppState>) -> Result<(), AppError> {
     pty_service::kill(&state)
 }

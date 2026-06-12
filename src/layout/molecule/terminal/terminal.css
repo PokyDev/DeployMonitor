@@ -119,51 +119,24 @@
   min-height: 0;
 }
 
-.terminal__scroll {
+/* Hosts the @xterm/xterm canvas/DOM nodes (term.open()). xterm.js manages
+   its own scrolling, cursor rendering, and selection — no custom CSS for
+   those. */
+.terminal__xterm {
   flex: 1;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
-  padding: 12px 14px;
-  font-family: var(--font-code);
-  font-size: 13px;
-  line-height: 1.55;
-  outline: none;
-  position: relative;
-  cursor: text;
+  min-height: 0;
+  overflow: hidden;
 }
 
-.terminal__scroll:focus-visible {
-  box-shadow: inset 0 0 0 1px var(--border-strong);
-}
-
-.terminal__output {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: #D4D0C4;
-  font-family: inherit;
-  font-size: inherit;
-  line-height: inherit;
-}
-
-/* Caret marking the user's input position. Blinks at rest to draw the eye to
-   it; held solid (via --cursor-solid) while the user types/navigates so it
-   doesn't fight for attention with what they're actively doing. Excluded
-   from selection so it never ends up in a copied command. */
-.terminal__cursor {
-  user-select: none;
-  color: var(--color-gold);
-  animation: terminal-cursor-blink 1s step-end infinite;
-}
-
-.terminal__scroll--cursor-solid .terminal__cursor {
-  animation: none;
-  opacity: 1;
-}
-
-@keyframes terminal-cursor-blink {
-  0%, 50% { opacity: 1; }
-  50.01%, 100% { opacity: 0; }
+/* Padding lives on .xterm (term.element), not its container: FitAddon reads
+   getComputedStyle(containerEl).height (border-box, includes padding under
+   our global `box-sizing: border-box`) and subtracts term.element's own
+   padding to get the available height. Padding on the container instead
+   would be double-counted, overestimating rows and clipping the last line
+   (the prompt) under `overflow: hidden`. */
+.terminal__xterm .xterm {
+  height: 100%;
+  padding: 8px 10px;
 }
 
 /* Floating "Copiar" menu shown on right-click when text is selected. */

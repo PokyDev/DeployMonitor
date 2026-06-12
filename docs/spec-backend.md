@@ -290,6 +290,7 @@ Parsed in `monitor-service.rs`. All metrics obtained via SSH exec — nothing in
 - Shell detection priority: `pwsh.exe` → `powershell.exe` → `cmd.exe` (Windows); `$SHELL` → `/bin/bash` (Unix)
 - Golden prompt (`#D4AF37`) auto-injected at startup via ANSI escape
 - `drain_pty_buffer` called **once after the read loop** — not inside it
+- This backend layer is unchanged by the frontend's move to `xterm.js` (see `spec-terminal.md`). It still emits raw byte chunks on `pty:data` / `ssh:pty-data` — the frontend is now the only thing that changed how it consumes them.
 
 ---
 

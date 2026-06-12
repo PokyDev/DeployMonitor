@@ -24,13 +24,12 @@ fn inject_prompt(shell: &str, writer: &mut Box<dyn Write + Send>) -> Result<(), 
     let lower = shell.to_lowercase();
     if lower.contains("powershell") || lower.contains("pwsh") {
         // Sent as ONE typed line so the shell echoes it as a single chunk, then
-        // `Clear-Host` emits a clear-screen sequence the renderer already recognizes
-        // (see extractClearScreen) and uses to wipe its scrollback: the generic
-        // "Windows PowerShell / Copyright..." banner *and* this line's own echo both
-        // vanish, leaving just the prompt ready for input.
+        // `Clear-Host` emits a clear-screen sequence that xterm.js interprets
+        // natively: the generic "Windows PowerShell / Copyright..." banner *and*
+        // this line's own echo both vanish, leaving just the prompt ready for input.
         // Raw SGR 33 escape codes (not -ForegroundColor) so the prompt color maps to
-        // the app's gold accent in the renderer's ANSI emulator regardless of PS
-        // version — `-ForegroundColor` emits a console-API color it doesn't map.
+        // the app's gold ITheme entry (see spec-terminal.md § Theming) regardless of
+        // PS version — `-ForegroundColor` emits a console-API color it doesn't map.
         let setup = concat!(
             "Clear-Host; ",
             r#"function prompt { $e = [char]27; Write-Host "$e[33m>$(Get-Location)>$e[0m" -NoNewline; " " }"#,
@@ -174,6 +173,31 @@ pub fn spawn(state: &AppState, app: AppHandle, cols: u16, rows: u16) -> Result<(
         writer,
         child,
     });
+
+    Ok(())
+}
+
+/// Resizes the running PTY to match the frontend terminal's `cols`/`rows`
+/// (driven by `@xterm/addon-fit`). No-op if no session is running.
+pub fn resize(state: &AppState, cols: u16, rows: u16) -> Result<(), AppError> {
+    let guard = state
+        .pty
+        .lock()
+        .map_err(|_| AppError::Pty("PTY state lock poisoned".into()))?;
+
+    let session = guard
+        .as_ref()
+        .ok_or_else(|| AppError::Pty("no active PTY session".into()))?;
+
+    session
+        .master
+        .resize(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| AppError::Pty(e.to_string()))?;
 
     Ok(())
 }

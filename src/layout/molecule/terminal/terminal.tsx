@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import { Terminal as TerminalIcon, Trash2, ChevronUp, ChevronDown, Copy } from 'lucide-react';
-import { ansiToHtml } from '../../../lib/ansi-to-html';
-import { keyToEscapeSequence } from '../../../lib/terminal-keymap';
+import { Terminal as XTerm } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import '@xterm/xterm/css/xterm.css';
+import { buildTheme } from '../../../lib/terminal-theme';
 import { useTerminalStore } from '../../../stores/use-terminal-store';
 import './terminal.css';
 
@@ -23,47 +25,66 @@ const DEFAULT_HEIGHT = 280;
 const MIN_HEIGHT = 160;
 const MAX_HEIGHT_RATIO = 0.7;
 
-/** How long the caret stays solid after the last keystroke before it resumes blinking. */
-const CURSOR_IDLE_MS = 500;
-
-function getSelectedText(): string {
-  return window.getSelection()?.toString() ?? '';
-}
-
 export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const termRef = useRef<XTerm | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
 
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [isResizing, setIsResizing] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
 
-  // Solid the moment the terminal gains focus or the user types/navigates —
-  // immediate confirmation of where the focus landed — then blinking once
-  // idle, same convention as a text-editor caret.
-  const [cursorSolid, setCursorSolid] = useState(false);
-  const cursorIdleTimer = useRef<number | null>(null);
-
-  const outputChunks = useTerminalStore((s) => s.outputChunks);
   const isRunning = useTerminalStore((s) => s.isRunning);
-  const isLocked = useTerminalStore((s) => s.isLocked);
 
-  // Hide the cursor while locked so the blinking caret doesn't compete with
-  // the "press any key" message.
-  const html = useMemo(
-    () => ansiToHtml(outputChunks.join(''), isRunning && !isLocked),
-    [outputChunks, isRunning, isLocked],
-  );
-
-  const markCursorActive = () => {
-    setCursorSolid(true);
-    if (cursorIdleTimer.current !== null) window.clearTimeout(cursorIdleTimer.current);
-    cursorIdleTimer.current = window.setTimeout(() => setCursorSolid(false), CURSOR_IDLE_MS);
-  };
-
+  // Create the xterm.js instance once and attach it to the container.
+  // term.onData() owns input, term.write() (driven by the store's pty:data
+  // listener) owns output — no manual keydown map or ANSI-to-HTML conversion.
   useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const term = new XTerm({
+      fontFamily: "'JetBrains Mono', monospace",
+      fontSize: 13,
+      lineHeight: 1.55,
+      scrollback: 5000,
+      cursorBlink: true,
+      theme: buildTheme(),
+    });
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(container);
+    fitAddon.fit();
+
+    termRef.current = term;
+    fitAddonRef.current = fitAddon;
+    useTerminalStore.getState().setTerminal(term);
+
+    term.onData((data) => {
+      void useTerminalStore.getState().write(data);
+    });
+
+    // Ctrl/Cmd+C copies the selection instead of sending SIGINT, mirroring
+    // the previous custom copy shortcut. With no selection, fall through so
+    // xterm sends \x03 as usual.
+    term.attachCustomKeyEventHandler((e) => {
+      const isCopyShortcut = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c';
+      if (isCopyShortcut && e.type === 'keydown') {
+        const selection = term.getSelection();
+        if (selection) {
+          void navigator.clipboard.writeText(selection);
+          return false;
+        }
+      }
+      return true;
+    });
+
     return () => {
-      if (cursorIdleTimer.current !== null) window.clearTimeout(cursorIdleTimer.current);
+      useTerminalStore.getState().setTerminal(null);
+      term.dispose();
+      termRef.current = null;
+      fitAddonRef.current = null;
     };
   }, []);
 
@@ -86,14 +107,27 @@ export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) 
     };
   }, []);
 
+  // Keep the PTY size in sync with the container's rendered size — covers the
+  // expand/collapse toggle, the drag-resize handle, and window resizes.
+  // fit() on a zero-size container (collapsed panel) yields 1x1; it is
+  // re-run by this observer once the container gets real dimensions.
   useEffect(() => {
-    if (expanded && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [html, expanded]);
+    const container = containerRef.current;
+    if (!container) return;
+
+    const observer = new ResizeObserver(() => {
+      const fitAddon = fitAddonRef.current;
+      const term = termRef.current;
+      if (!fitAddon || !term) return;
+      fitAddon.fit();
+      void useTerminalStore.getState().resize(term.cols, term.rows);
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
-    if (expanded) scrollRef.current?.focus();
+    if (expanded) termRef.current?.focus();
   }, [expanded]);
 
   // Drag-resize: track the gesture on window-level listeners so the cursor
@@ -154,35 +188,8 @@ export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) 
     void navigator.clipboard.writeText(text);
   };
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    // While locked (post-cls message): any key unlocks the terminal.
-    // The key itself is discarded — PTY receives \r to redraw a fresh prompt.
-    if (isLocked) {
-      e.preventDefault();
-      void useTerminalStore.getState().unlock();
-      return;
-    }
-
-    const isCopyShortcut = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c';
-    if (isCopyShortcut) {
-      const selected = getSelectedText();
-      if (selected) {
-        e.preventDefault();
-        copySelection(selected);
-        return;
-      }
-    }
-
-    e.preventDefault();
-    const seq = keyToEscapeSequence(e);
-    if (seq) {
-      markCursorActive();
-      void useTerminalStore.getState().write(seq);
-    }
-  };
-
   const handleContextMenu = (e: ReactMouseEvent<HTMLDivElement>) => {
-    const selected = getSelectedText();
+    const selected = termRef.current?.getSelection() ?? '';
     if (!selected) return;
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY, text: selected });
@@ -215,11 +222,11 @@ export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) 
             className="terminal-icon-btn"
             title="Limpiar"
             aria-label="Limpiar terminal"
-            onClick={(e) => { e.stopPropagation(); void useTerminalStore.getState().clearViaCls(); }}
+            onClick={(e) => { e.stopPropagation(); useTerminalStore.getState().clear(); }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.stopPropagation();
-                void useTerminalStore.getState().clearViaCls();
+                useTerminalStore.getState().clear();
               }
             }}
           >
@@ -247,20 +254,7 @@ export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) 
       </div>
 
       <div className="terminal__body" id="terminal-body">
-        <div
-          ref={scrollRef}
-          className={`terminal__scroll${cursorSolid ? ' terminal__scroll--cursor-solid' : ''}`}
-          tabIndex={0}
-          role="textbox"
-          aria-label="Terminal local"
-          aria-multiline="true"
-          onKeyDown={handleKeyDown}
-          onFocus={markCursorActive}
-          onClick={() => scrollRef.current?.focus()}
-          onContextMenu={handleContextMenu}
-        >
-          <pre className="terminal__output" dangerouslySetInnerHTML={{ __html: html }} />
-        </div>
+        <div ref={containerRef} className="terminal__xterm" onContextMenu={handleContextMenu} />
       </div>
 
       {contextMenu && (

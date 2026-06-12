@@ -5,7 +5,7 @@ mod state;
 
 use tauri::Manager;
 
-use commands::pty::{pty_start, pty_stop, pty_write};
+use commands::pty::{pty_resize, pty_start, pty_stop, pty_write};
 use state::AppState;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -20,7 +20,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
-            greet, pty_start, pty_write, pty_stop
+            greet, pty_start, pty_write, pty_resize, pty_stop
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

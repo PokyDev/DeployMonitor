@@ -108,11 +108,12 @@ Renderer (React/TS)  ──invoke()──▶  Commands (Rust)  ──▶  Servic
 
 Full spec in `docs/spec-terminal.md`. Critical rules:
 
-- PTY lifecycle: `pty_start` → `pty_write` → `pty_resize` → `pty_stop`
-- Raw keydown events map to escape sequences in `terminal-panel.tsx` — no `value`/`onChange` on the terminal container.
-- Output chunk array capped at **2000 entries**.
-- ANSI SGR 33 → `#D4AF37` (gold) in ANSI-to-HTML converter.
+- PTY lifecycle: `pty_start` → `pty_write` → `pty_resize` → `pty_stop`. Backend (`portable-pty`, `russh` PTY channel) is unchanged.
+- Frontend rendering is `@xterm/xterm` + `@xterm/addon-fit` (decision: 2026-06-11, see `spec-terminal.md`). No `value`/`onChange` on the terminal container — xterm.js owns input via `term.onData()` and output via `term.write()`.
+- Do not reintroduce a custom ANSI/VT100 parser, manual `keyToEscapeSequence` map, or `outputChunks` array — these are superseded by xterm.js. The prior "no third-party ANSI library" rule no longer applies; `xterm.js` is an accepted dependency.
+- ANSI SGR 33 → `#D4AF37` (gold) via xterm.js `ITheme`, not a custom converter.
 - `drain_pty_buffer` called **once after the read loop**, never inside it.
+- Reuse the same `xterm.js`-backed component (read-only mode) for streamed script-automation output — do not build a second ANSI renderer.
 
 ---
 
