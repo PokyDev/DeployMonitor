@@ -25,8 +25,10 @@ const DEFAULT_ROWS = 24;
 const DEFAULT_HEIGHT = 280;
 const MIN_HEIGHT = 160;
 const MAX_HEIGHT_RATIO = 0.7;
-const WELCOME_PULSE_PERIOD_MS = 2000;
+const WELCOME_PULSE_PERIOD_MS = 4000;
 const WELCOME_PULSE_INTERVAL_MS = 50;
+// Floor for the line-2 pulse so the text never fades to fully invisible.
+const WELCOME_PULSE_MIN_OPACITY = 0.35;
 
 export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -70,12 +72,14 @@ export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) 
     // Lock screen: hide all real shell output behind a welcome message until
     // the user presses any key. pty:data is buffered by the store meanwhile.
     if (startLocked) {
-      term.write(`\x1b[2J\x1b[H${buildWelcomeLine1()}\r\n${buildWelcomeLine2(interpolateOpacity(1))}`);
+      // \x1b[?25l hides the cursor (DECTCEM) — re-shown with \x1b[?25h on unlock.
+      term.write(`\x1b[?25l\x1b[2J\x1b[H${buildWelcomeLine1()}\r\n${buildWelcomeLine2(interpolateOpacity(1))}`);
 
       const start = performance.now();
       welcomePulseRef.current = window.setInterval(() => {
         const elapsed = performance.now() - start;
-        const t = (Math.sin((elapsed / WELCOME_PULSE_PERIOD_MS) * 2 * Math.PI) + 1) / 2;
+        const raw = (Math.sin((elapsed / WELCOME_PULSE_PERIOD_MS) * 2 * Math.PI) + 1) / 2;
+        const t = WELCOME_PULSE_MIN_OPACITY + raw * (1 - WELCOME_PULSE_MIN_OPACITY);
         term.write(buildWelcomeLine2(interpolateOpacity(t)));
       }, WELCOME_PULSE_INTERVAL_MS);
     }
@@ -86,7 +90,7 @@ export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) 
           window.clearInterval(welcomePulseRef.current);
           welcomePulseRef.current = null;
         }
-        term.write(`${buildWelcomeLine2(interpolateOpacity(1))}\r\n\r\n`);
+        term.write(`${buildWelcomeLine2(interpolateOpacity(1))}\r\n\r\n\x1b[?25h`);
         term.options.cursorBlink = true;
         useTerminalStore.getState().unlock();
         return;

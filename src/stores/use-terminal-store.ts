@@ -61,7 +61,8 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
   stop: async () => {
     if (!get().isRunning) return;
     await ptyStop();
-    set({ isRunning: false });
+    // Re-arm the lock screen so the welcome message shows again next session.
+    set({ isRunning: false, locked: true, pendingOutput: [] });
   },
 
   /** Clears the xterm scrollback/screen buffer and asks the shell to redraw its prompt. */
