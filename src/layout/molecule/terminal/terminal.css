@@ -113,6 +113,7 @@
 }
 
 .terminal__body {
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -145,6 +146,101 @@
 .terminal__xterm .xterm-viewport {
   background-color: #0D0D0D;
 }
+
+/* ========================
+   Lock screen overlay
+   Matches the Claude Design (.tls / .tls-*) exactly:
+   text-shadow glow, radial vignette, gradient divider, CSS keyframe animations.
+   Positioned absolute so it covers only .terminal__body, not the header.
+   ======================== */
+.terminal__lock {
+  position: absolute;
+  inset: 0;
+  background: #0D0D0D;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  z-index: 5;
+}
+
+.terminal__lock--exit {
+  animation: tlsFadeOut 220ms ease forwards;
+  pointer-events: none;
+}
+
+.terminal__lock::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 90% 80% at 50% 50%, transparent 30%, rgba(0, 0, 0, 0.55) 100%);
+  pointer-events: none;
+}
+
+.terminal__lock-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 16px;
+}
+
+.terminal__lock-ascii {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  line-height: 1.18;
+  white-space: pre;
+  color: var(--color-gold);
+  text-shadow:
+    0 0 8px rgba(212, 175, 55, 0.9),
+    0 0 22px rgba(212, 175, 55, 0.4),
+    0 0 48px rgba(212, 175, 55, 0.15);
+  display: block;
+  margin: 0;
+  animation: tlsGlowPulse 4s ease-in-out infinite;
+}
+
+.terminal__lock-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  margin-top: 10px;
+  letter-spacing: 0.03em;
+}
+
+.terminal__lock-dot {
+  color: var(--border-default);
+  padding: 0 5px;
+}
+
+.terminal__lock-clock {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.terminal__lock-hr {
+  width: 260px;
+  max-width: 90%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border-subtle) 30%, var(--border-subtle) 70%, transparent);
+  margin: 10px 0;
+}
+
+.terminal__lock-unlock {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  animation: tlsUnlockPulse 2.6s ease-in-out infinite;
+}
+
+@keyframes tlsFadeOut     { from { opacity: 1; } to { opacity: 0; } }
+@keyframes tlsGlowPulse   { 0%, 100% { text-shadow: 0 0 8px rgba(212,175,55,0.9), 0 0 22px rgba(212,175,55,0.4), 0 0 48px rgba(212,175,55,0.15); } 50% { text-shadow: 0 0 14px rgba(212,175,55,1), 0 0 36px rgba(212,175,55,0.6), 0 0 64px rgba(212,175,55,0.28); } }
+@keyframes tlsUnlockPulse { 0%, 100% { opacity: 0.85; } 50% { opacity: 0.08; } }
 
 /* Floating "Copiar" menu shown on right-click when text is selected. */
 .terminal__context-menu {

@@ -11,7 +11,7 @@ import {
   Crown,
 } from 'lucide-react';
 import { useDashboardStore, SECTIONS, type SectionId } from '../../../stores/use-dashboard-store';
-import type { ConnectionStage } from '../../../hooks/use-mock-connection';
+import type { ConnectionStage } from '../../../hooks/use-ssh-connection';
 import './sidebar.css';
 
 const NAV_ICONS: Record<SectionId, LucideIcon> = {
@@ -37,6 +37,7 @@ const CONNECTION_LABELS: Record<ConnectionStage, string> = {
   connecting: 'Conectando…',
   testing: 'Probando…',
   online: 'Conectado',
+  verified: 'Conexión Verificada',
   error: 'Error de conexión',
 };
 

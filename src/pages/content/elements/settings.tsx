@@ -1,11 +1,11 @@
 import { useState, type ReactNode } from 'react';
 import { Moon, Sun, Monitor as MonitorIcon, Lock, LogOut } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { useMockConnection } from '../../../hooks/use-mock-connection';
+import type { useSshConnection } from '../../../hooks/use-ssh-connection';
 import { useDashboardStore } from '../../../stores/use-dashboard-store';
 import './settings.css';
 
-type Connection = ReturnType<typeof useMockConnection>;
+type Connection = ReturnType<typeof useSshConnection>;
 
 type ThemeChoice = 'dark' | 'light' | 'system';
 
@@ -91,7 +91,7 @@ export default function SettingsView({ connection }: SettingsProps) {
         <SettingsCard label="Conexión SSH">
           <SettingsRow
             title="Instancia configurada"
-            mono={connection.isOnline ? connection.info.host : 'No configurada'}
+            mono={connection.isOnline ? (connection.info?.host ?? 'Conectado') : 'No configurada'}
             action={
               <button type="button" className="dm-btn dm-btn--sm" onClick={() => navigateToSection('overview')}>
                 Ir al dashboard

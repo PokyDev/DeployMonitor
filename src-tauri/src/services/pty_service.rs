@@ -18,26 +18,29 @@ fn detect_shell() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string())
 }
 
-/// Writes the gold prompt configuration for the detected shell so the
-/// terminal matches the design system's accent color.
-fn inject_prompt(shell: &str, writer: &mut Box<dyn Write + Send>) -> Result<(), AppError> {
+/// Builds the `-Command` script passed to pwsh/powershell at spawn time so
+/// the gold prompt and bell silencing are in effect *before* PSReadLine's
+/// interactive loop starts — avoids racing stdin injection against ConPTY's
+/// startup handshake (see `spawn_reader_thread`).
+/// Raw SGR 33 escape codes (not -ForegroundColor) so the prompt color maps to
+/// the app's gold ITheme entry (see spec-terminal.md § Theming) regardless of
+/// PS version — `-ForegroundColor` emits a console-API color it doesn't map.
+fn build_pwsh_setup() -> String {
+    concat!(
+        "Set-PSReadLineOption -BellStyle None; ",
+        "Clear-Host; ",
+        r#"function prompt { $e = [char]27; Write-Host "$e[33m>$(Get-Location)>$e[0m" -NoNewline; " " }"#,
+    )
+    .to_string()
+}
+
+/// Writes the gold prompt configuration for Unix shells so the terminal
+/// matches the design system's accent color, and disables the terminal bell.
+fn inject_prompt_unix(shell: &str, writer: &mut Box<dyn Write + Send>) -> Result<(), AppError> {
     let lower = shell.to_lowercase();
-    if lower.contains("powershell") || lower.contains("pwsh") {
-        // Sent as ONE typed line so the shell echoes it as a single chunk, then
-        // `Clear-Host` emits a clear-screen sequence that xterm.js interprets
-        // natively: the generic "Windows PowerShell / Copyright..." banner *and*
-        // this line's own echo both vanish, leaving just the prompt ready for input.
-        // Raw SGR 33 escape codes (not -ForegroundColor) so the prompt color maps to
-        // the app's gold ITheme entry (see spec-terminal.md § Theming) regardless of
-        // PS version — `-ForegroundColor` emits a console-API color it doesn't map.
-        let setup = concat!(
-            "Clear-Host; ",
-            r#"function prompt { $e = [char]27; Write-Host "$e[33m>$(Get-Location)>$e[0m" -NoNewline; " " }"#,
-        );
-        writer.write_all(format!("{}\r\n", setup).as_bytes())?;
-    } else if lower.contains("bash") || lower.contains("zsh") || lower.contains("sh") {
-        let prompt_cmd = r#"PS1='\[\e[33m\]\u@\h:\w\$\[\e[0m\] '"#;
-        writer.write_all(format!("{}\n", prompt_cmd).as_bytes())?;
+    if lower.contains("bash") || lower.contains("zsh") || lower.contains("sh") {
+        let setup = r#"bind 'set bell-style none'; PS1='\[\e[33m\]\u@\h:\w\$\[\e[0m\] '"#;
+        writer.write_all(format!("{}\n", setup).as_bytes())?;
     }
     Ok(())
 }
@@ -60,43 +63,45 @@ const CPR_REPLY: &[u8] = b"\x1b[1;1R";
 /// is forwarded immediately so the terminal feels live.
 ///
 /// Also answers `CPR_QUERY` directly on the PTY writer as soon as it's seen
-/// in a chunk — required for ConPTY to complete its startup handshake.
+/// — required for ConPTY to complete its startup handshake. A small `carry`
+/// buffer holds the trailing `CPR_QUERY.len() - 1` bytes of the previous
+/// chunk so the query is still detected if it's split across two `read()`
+/// calls; those carried bytes are only used for matching, never re-emitted.
 ///
-/// When `defer_prompt_injection` is set, the prompt setup is also sent here,
-/// immediately after the CPR reply (and only once). PowerShell/ConPTY blocks
-/// the whole session — and scans incoming bytes for this exact reply pattern —
-/// until it arrives; writing the setup string any earlier means it gets
-/// consumed mid-scan instead of run as a command, leaving the shell stuck on
-/// an incomplete statement (rendered as a perpetual `>>` continuation prompt).
-/// Shells without this handshake get the setup written immediately in `spawn`.
+/// Prompt/bell setup is no longer injected here — for pwsh/PowerShell it's
+/// passed as a `-Command` argument at spawn time (see `build_pwsh_setup`),
+/// avoiding the race between stdin injection and PSReadLine's startup.
 fn spawn_reader_thread(
     mut reader: Box<dyn Read + Send>,
     app: AppHandle,
     pty: Arc<Mutex<Option<PtySession>>>,
-    shell: String,
-    defer_prompt_injection: bool,
 ) {
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
-        let mut prompt_injected = !defer_prompt_injection;
+        let mut carry: Vec<u8> = Vec::new();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
                     let bytes = &buf[..n];
-                    if bytes.windows(CPR_QUERY.len()).any(|w| w == CPR_QUERY) {
+                    let mut search = carry.clone();
+                    search.extend_from_slice(bytes);
+
+                    if search.windows(CPR_QUERY.len()).any(|w| w == CPR_QUERY) {
                         if let Ok(mut guard) = pty.lock() {
                             if let Some(session) = guard.as_mut() {
                                 let _ = session.writer.write_all(CPR_REPLY);
                                 let _ = session.writer.flush();
-
-                                if !prompt_injected {
-                                    prompt_injected = true;
-                                    let _ = inject_prompt(&shell, &mut session.writer);
-                                }
                             }
                         }
                     }
+
+                    let keep = CPR_QUERY.len() - 1;
+                    carry = if search.len() > keep {
+                        search[search.len() - keep..].to_vec()
+                    } else {
+                        search
+                    };
 
                     let chunk = String::from_utf8_lossy(bytes).into_owned();
                     if app.emit("pty:data", chunk).is_err() {
@@ -137,7 +142,20 @@ pub fn spawn(state: &AppState, app: AppHandle, cols: u16, rows: u16) -> Result<(
         return Err(AppError::ShellNotFound);
     }
 
-    let cmd = CommandBuilder::new(&shell);
+    let lower = shell.to_lowercase();
+    let is_pwsh = lower.contains("powershell") || lower.contains("pwsh");
+
+    let mut cmd = CommandBuilder::new(&shell);
+    if is_pwsh {
+        // Run the prompt/bell setup as part of PowerShell's own startup
+        // script — executed before PSReadLine's interactive loop begins, so
+        // there's no race with stdin injection (see build_pwsh_setup).
+        cmd.arg("-NoLogo");
+        cmd.arg("-NoExit");
+        cmd.arg("-Command");
+        cmd.arg(build_pwsh_setup());
+    }
+
     let child = pair
         .slave
         .spawn_command(cmd)
@@ -155,18 +173,11 @@ pub fn spawn(state: &AppState, app: AppHandle, cols: u16, rows: u16) -> Result<(
         .try_clone_reader()
         .map_err(|e| AppError::Pty(e.to_string()))?;
 
-    // PowerShell answers ConPTY's blocking cursor-position query before it
-    // starts reading input as commands — defer the prompt setup to the reader
-    // thread so it lands right after that handshake completes (see
-    // spawn_reader_thread). Shells that don't perform this handshake get the
-    // setup written immediately, as before.
-    let lower = shell.to_lowercase();
-    let defer_prompt_injection = lower.contains("powershell") || lower.contains("pwsh");
-    if !defer_prompt_injection {
-        inject_prompt(&shell, &mut writer)?;
+    if !is_pwsh {
+        inject_prompt_unix(&shell, &mut writer)?;
     }
 
-    spawn_reader_thread(reader, app, state.pty.clone(), shell.clone(), defer_prompt_injection);
+    spawn_reader_thread(reader, app, state.pty.clone());
 
     *guard = Some(PtySession {
         master,

@@ -12,6 +12,29 @@ pub enum AppError {
 
     #[error("no compatible shell found on this system")]
     ShellNotFound,
+
+    #[error("PEM file not found: {0}")]
+    PemNotFound(String),
+
+    #[error("PEM file not readable: {0}")]
+    PemNotReadable(String),
+
+    #[cfg_attr(not(unix), allow(dead_code))]
+    #[error("PEM file permissions are too open — only the owner should have read access")]
+    PemBadPermissions,
+
+    #[error("PEM file is not a valid private key: {0}")]
+    PemInvalidKey(String),
+
+    #[error("SSH host unreachable: {0}")]
+    SshHostUnreachable(String),
+
+    #[error("SSH connection timed out after 10 seconds")]
+    SshTimeout,
+
+    #[error("SSH authentication failed — key rejected by server")]
+    SshAuthFailed,
+
 }
 
 impl Serialize for AppError {
@@ -23,6 +46,13 @@ impl Serialize for AppError {
             AppError::Pty(msg) => ("PTY_ERROR", msg.clone()),
             AppError::Io(msg) => ("IO_ERROR", msg.clone()),
             AppError::ShellNotFound => ("SHELL_NOT_FOUND", self.to_string()),
+            AppError::PemNotFound(path) => ("PEM_NOT_FOUND", path.clone()),
+            AppError::PemNotReadable(msg) => ("PEM_NOT_READABLE", msg.clone()),
+            AppError::PemBadPermissions => ("PEM_BAD_PERMISSIONS", self.to_string()),
+            AppError::PemInvalidKey(msg) => ("PEM_INVALID_KEY", msg.clone()),
+            AppError::SshHostUnreachable(msg) => ("SSH_HOST_UNREACHABLE", msg.clone()),
+            AppError::SshTimeout => ("SSH_TIMEOUT", self.to_string()),
+            AppError::SshAuthFailed => ("SSH_AUTH_FAILED", self.to_string()),
         };
         let mut state = serializer.serialize_struct("AppError", 2)?;
         state.serialize_field("code", code)?;

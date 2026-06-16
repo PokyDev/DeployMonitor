@@ -1,8 +1,9 @@
+import { useEffect } from 'react';
 import Sidebar from '../../layout/molecule/sidebar/sidebar';
 import Terminal from '../../layout/molecule/terminal/terminal';
 import { useDashboardStore } from '../../stores/use-dashboard-store';
 import { useNavStore } from '../../stores/use-nav-store';
-import { useMockConnection } from '../../hooks/use-mock-connection';
+import { useSshConnection } from '../../hooks/use-ssh-connection';
 import { useMockMetrics } from '../../hooks/use-mock-metrics';
 import { useMockScripts } from '../../hooks/use-mock-scripts';
 import { useMockHistory } from '../../hooks/use-mock-history';
@@ -21,7 +22,13 @@ export default function Content() {
   const setTerminalExpanded = useDashboardStore((s) => s.setTerminalExpanded);
   const goToLanding = useNavStore((s) => s.goToLanding);
 
-  const connection = useMockConnection();
+  const connection = useSshConnection();
+  const setConnectionStage = useDashboardStore((s) => s.setConnectionStage);
+
+  useEffect(() => {
+    setConnectionStage(connection.stage);
+  }, [connection.stage, setConnectionStage]);
+
   const metrics = useMockMetrics(connection.isOnline);
   const scripts = useMockScripts();
   const history = useMockHistory();

@@ -19,3 +19,22 @@ export async function ptyResize(cols: number, rows: number): Promise<void> {
 export async function ptyStop(): Promise<void> {
   await invoke('pty_stop');
 }
+
+export type SshTestResult = {
+  latency_ms: number;
+};
+
+/** Tests an SSH connection using a .pem key. Throws { code, message } on failure. */
+export async function sshTestConnection(
+  pemPath: string,
+  user: string,
+  host: string,
+  port?: number,
+): Promise<SshTestResult> {
+  return await invoke<SshTestResult>('ssh_test_connection', {
+    pemPath,
+    user,
+    host,
+    port: port ?? null,
+  });
+}
