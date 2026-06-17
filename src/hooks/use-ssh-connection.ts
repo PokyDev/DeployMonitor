@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { LazyStore } from '@tauri-apps/plugin-store';
 import { sshTestConnection } from '../lib/tauri-commands';
 import {
   parseSshCommand,
@@ -8,6 +9,11 @@ import {
 } from '../lib/ssh-utils';
 import { useTerminalStore } from '../stores/use-terminal-store';
 import { useDashboardStore } from '../stores/use-dashboard-store';
+
+// Persists only the connection form fields across app restarts — the rest of
+// the connection state (stage, log, info) is session-only and intentionally
+// not stored here.
+const connectionStore = new LazyStore('connection-settings.json');
 
 export type ConnectionStage = 'idle' | 'connecting' | 'testing' | 'online' | 'verified' | 'error';
 
@@ -79,9 +85,36 @@ function clearSshState() {
 export function useSshConnection() {
   const [stage, setStage] = useState<ConnectionStage>('idle');
   const [log, setLog]     = useState<string[]>([]);
-  const [pemPath, setPemPath]                   = useState('');
-  const [connectionString, setConnectionString] = useState('');
+  const [pemPath, setPemPathState]                   = useState('');
+  const [connectionString, setConnectionStringState] = useState('');
   const [info, setInfo] = useState<ConnectionInfo | null>(null);
+
+  // Restore the persisted connection fields once on mount.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const [savedPemPath, savedConnectionString] = await Promise.all([
+        connectionStore.get<string>('pemPath'),
+        connectionStore.get<string>('connectionString'),
+      ]);
+      if (!active) return;
+      if (savedPemPath) setPemPathState(savedPemPath);
+      if (savedConnectionString) setConnectionStringState(savedConnectionString);
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const setPemPath = useCallback((value: string) => {
+    setPemPathState(value);
+    void connectionStore.set('pemPath', value);
+  }, []);
+
+  const setConnectionString = useCallback((value: string) => {
+    setConnectionStringState(value);
+    void connectionStore.set('connectionString', value);
+  }, []);
 
   const append = useCallback((line: string) => {
     setLog((prev) => [...prev, line]);
@@ -147,6 +180,25 @@ export function useSshConnection() {
       useTerminalStore.getState().registerSshCallbacks({ sshManualDetectCb: null });
     };
   }, [startSshFlow]);
+
+  // Subscribe to sshConnected changes in the terminal store.
+  // This drives stage updates for *all* connection sources — including passive
+  // connections where no sshConnectedCb was registered via startSshFlow
+  // (e.g., user typed SSH with tab-completion or pasted the command).
+  useEffect(() => {
+    const unsub = useTerminalStore.subscribe((state, prev) => {
+      if (state.sshConnected === prev.sshConnected) return;
+      if (state.sshConnected) {
+        setStage('online');
+        setLog([]);
+      } else {
+        setStage('idle');
+        setLog([]);
+        setInfo(null);
+      }
+    });
+    return unsub;
+  }, []);
 
   /** "Conectar" button handler — validates, handles terminal state, injects SSH command. */
   const connect = useCallback(async () => {

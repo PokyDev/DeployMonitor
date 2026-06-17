@@ -26,6 +26,8 @@ type TerminalStore = SshCallbacks & {
   sshConnected: boolean;
   /** True while waiting for pty:data patterns that confirm SSH connected/failed. */
   sshDetecting: boolean;
+  /** setTimeout id for the detection fallback timer. */
+  sshDetectTimer: number | null;
 
   /** Registered by terminal.tsx so the connect flow can trigger unlock programmatically. */
   unlockFn: (() => void) | null;
@@ -68,6 +70,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
 
   sshConnected: false,
   sshDetecting: false,
+  sshDetectTimer: null,
 
   unlockFn: null,
   unlockPending: false,
@@ -89,20 +92,28 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
         return;
       }
 
-      // SSH lifecycle detection — active after an SSH command is submitted.
-      if (state.sshDetecting) {
+      // SSH lifecycle detection.
+      // 'connected' is checked unconditionally — not only when sshDetecting is true —
+      // so passive / manually-typed SSH connections are also detected without needing
+      // the keyboard-buffer path (which silently fails on tab completion and paste).
+      if (!state.sshConnected) {
         const signal = detectSshOutput(event.payload);
         if (signal === 'connected') {
-          set({ sshDetecting: false, sshConnected: true });
+          const timer = get().sshDetectTimer;
+          if (timer) window.clearTimeout(timer);
+          set({ sshDetecting: false, sshDetectTimer: null, sshConnected: true });
           get().sshConnectedCb?.();
-        } else if (signal === 'failed') {
-          set({ sshDetecting: false });
+        } else if (state.sshDetecting && signal === 'failed') {
+          // Treat failure as definitive only during active detection to avoid
+          // false positives from unrelated local shell error output.
+          const timer = get().sshDetectTimer;
+          if (timer) window.clearTimeout(timer);
+          set({ sshDetecting: false, sshDetectTimer: null });
           get().sshFailedCb?.();
         }
-        // 'disconnected' during initial detection is ignored.
-      } else if (state.sshConnected) {
+      } else {
         const signal = detectSshOutput(event.payload);
-        if (signal === 'disconnected') {
+        if (signal === 'disconnected' || signal === 'failed') {
           set({ sshConnected: false });
           get().sshExitCb?.();
         }
@@ -174,8 +185,27 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
     get().sshManualDetectCb?.(cmd);
   },
 
-  startSshDetection: () => set({ sshDetecting: true }),
-  stopSshDetection:  () => set({ sshDetecting: false }),
+  startSshDetection: () => {
+    // Cancel any previous timer to avoid ghost triggers.
+    const prev = get().sshDetectTimer;
+    if (prev) window.clearTimeout(prev);
+
+    // Fallback: if no failure pattern is detected within 5 s, assume connected.
+    // This handles servers whose MOTD/welcome message doesn't match any known pattern.
+    const timer = window.setTimeout(() => {
+      if (!get().sshDetecting) return;
+      set({ sshDetecting: false, sshDetectTimer: null, sshConnected: true });
+      get().sshConnectedCb?.();
+    }, 5000);
+
+    set({ sshDetecting: true, sshDetectTimer: timer });
+  },
+
+  stopSshDetection: () => {
+    const timer = get().sshDetectTimer;
+    if (timer) window.clearTimeout(timer);
+    set({ sshDetecting: false, sshDetectTimer: null });
+  },
 
   writeSystemMessage: (text) => {
     get().terminal?.write(text);

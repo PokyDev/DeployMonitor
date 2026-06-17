@@ -12,11 +12,13 @@ import {
   MemoryStick,
   HardDrive,
   Gauge,
+  Lightbulb,
 } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { useSshConnection, ConnectionStage } from '../../../hooks/use-ssh-connection';
 import { useTerminalStore } from '../../../stores/use-terminal-store';
 import type { useMockMetrics, MetricId, MetricState, MetricStatus } from '../../../hooks/use-mock-metrics';
+import { useOverviewTips } from '../../../hooks/use-overview-tips';
 import { Sparkline } from '../../../lib/metric-charts';
 import './overview.css';
 
@@ -65,13 +67,11 @@ function ConnectionPanel({ connection }: { connection: Connection }) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    // Always cancel any pending timer first
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
 
-    // While testing or idle, or when the log is already empty, do nothing extra
     if (
       connection.stage === 'testing' ||
       connection.stage === 'idle' ||
@@ -81,7 +81,6 @@ function ConnectionPanel({ connection }: { connection: Connection }) {
       return;
     }
 
-    // Stage settled to 'online' or 'error' with log content → start auto-hide
     timerRef.current = setTimeout(() => {
       setLogExiting(true);
       timerRef.current = setTimeout(() => {
@@ -210,6 +209,57 @@ function ConnectionPanel({ connection }: { connection: Connection }) {
   );
 }
 
+function OverviewHero() {
+  const [now, setNow] = useState(() => new Date());
+  const tip = useOverviewTips();
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const timeStr = now.toLocaleTimeString('es-ES', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+
+  const dateStr = now.toLocaleDateString('es-ES', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+
+  return (
+    <div className="dm-card overview-hero">
+      <div className="overview-hero__top">
+        <div className="overview-hero__identity">
+          <h1 className="overview-hero__title">Overview</h1>
+          <p className="overview-hero__subtitle">
+            Conéctate y revisa el consumo de tu instancia
+          </p>
+        </div>
+        <div className="overview-hero__clock">
+          <span className="overview-hero__time">{timeStr}</span>
+          <span className="overview-hero__date">{dateStr}</span>
+        </div>
+      </div>
+
+      <div className="overview-hero__sep" role="separator" />
+
+      <div className="overview-hero__tip">
+        <div className="overview-hero__tip-head">
+          <Lightbulb size={13} strokeWidth={1.5} aria-hidden="true" />
+          <span className="overview-hero__tip-label">Tip</span>
+        </div>
+        <p className="overview-hero__tip-text">{tip}</p>
+      </div>
+    </div>
+  );
+}
+
 const METRIC_META: Record<MetricId, { icon: LucideIcon; label: string; unit: string }> = {
   cpu:  { icon: Cpu,         label: 'CPU',      unit: '%' },
   mem:  { icon: MemoryStick, label: 'Memoria',  unit: '%' },
@@ -261,17 +311,13 @@ type OverviewProps = {
 export default function Overview({ connection, metrics }: OverviewProps) {
   return (
     <div className="dashboard__content-inner dm-section">
-      <ConnectionPanel connection={connection} />
-
-      <div className="overview-metrics">
-        <div className="overview-metrics__head">
-          <span className="dm-eyebrow">
-            <Activity size={15} strokeWidth={1.5} aria-hidden="true" />
-            Métricas del sistema
-          </span>
-          <span className="overview-metrics__sub">datos de muestra</span>
+      <div className="overview-page">
+        <div className="overview-top">
+          <ConnectionPanel connection={connection} />
+          <OverviewHero />
         </div>
-        <div className="overview-metrics__grid">
+
+        <div className="overview-bottom">
           {OVERVIEW_METRICS.map((id) => (
             <MetricCard key={id} id={id} data={metrics[id]} />
           ))}

@@ -14,6 +14,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             pty_start, pty_write, pty_resize, pty_stop,

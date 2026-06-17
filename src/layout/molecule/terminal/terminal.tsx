@@ -211,13 +211,16 @@ export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) 
     //   2. "exit" typed while SSH is active → notifies the connection hook
     let inputBuffer = '';
     term.onData((data) => {
-      if (data === '\r') {
-        const trimmed = inputBuffer.trim();
-        const store = useTerminalStore.getState();
-        if (!store.sshConnected && SSH_CMD_RE.test(trimmed)) {
-          store.notifySshCommandTyped(trimmed);
-        } else if (store.sshConnected && trimmed === 'exit') {
-          window.setTimeout(() => useTerminalStore.getState().sshExitCb?.(), 500);
+      // Detect Enter in all forms xterm.js may send (\r, \n, or \r\n as a single event).
+      if (data === '\r' || data === '\n' || data === '\r\n') {
+        if (inputBuffer.length > 0) {
+          const trimmed = inputBuffer.trim();
+          const store = useTerminalStore.getState();
+          if (!store.sshConnected && SSH_CMD_RE.test(trimmed)) {
+            store.notifySshCommandTyped(trimmed);
+          } else if (store.sshConnected && trimmed === 'exit') {
+            window.setTimeout(() => useTerminalStore.getState().sshExitCb?.(), 500);
+          }
         }
         inputBuffer = '';
       } else if (data === '\x7f') {

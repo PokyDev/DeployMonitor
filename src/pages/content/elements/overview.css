@@ -1,8 +1,34 @@
 /* ========================
    overview.css
-   Overview section — connection panel + system metrics
+   Overview section — connection panel + hero + metrics
    ======================== */
 
+/* ── Page container — centrado con márgenes en pantallas grandes ── */
+.overview-page {
+  max-width: 1000px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* ── Sección superior: panel SSH (izq) + hero (der) ── */
+.overview-top {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-5);
+  align-items: stretch;
+}
+
+/* ── Sección inferior: tarjetas de métricas en fila ── */
+.overview-bottom {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+}
+
+/* ── Connection panel ── */
 .overview-conn {
   padding: var(--space-5);
   display: flex;
@@ -29,9 +55,9 @@
 
 .overview-conn__field {
   display: grid;
-  grid-template-columns: 160px 1fr;
+  grid-template-columns: 140px 1fr;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-3);
 }
 
 .overview-conn__actions {
@@ -93,32 +119,113 @@
   }
 }
 
-/* ── Metrics ── */
-.overview-metrics {
+/* ── Hero panel ── */
+.overview-hero {
+  padding: var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-}
-
-.overview-metrics__head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-}
-
-.overview-metrics__sub {
-  font-family: var(--font-ui);
-  font-size: 12px;
-  font-style: italic;
-  color: var(--text-muted);
-}
-
-.overview-metrics__grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
   gap: var(--space-4);
 }
 
+.overview-hero__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.overview-hero__identity {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.overview-hero__title {
+  font-family: var(--font-title);
+  font-weight: 500;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.1;
+}
+
+.overview-hero__subtitle {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.overview-hero__clock {
+  text-align: right;
+  flex: 0 0 auto;
+}
+
+.overview-hero__time {
+  display: block;
+  font-family: var(--font-title);
+  font-weight: 500;
+  font-size: 30px;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.overview-hero__date {
+  display: block;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: capitalize;
+  margin-top: var(--space-1);
+  line-height: 1.4;
+}
+
+.overview-hero__sep {
+  height: 1px;
+  background: var(--border-subtle);
+  flex: 0 0 auto;
+}
+
+.overview-hero__tip {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.overview-hero__tip-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.overview-hero__tip-head svg {
+  color: var(--color-gold);
+  flex: 0 0 auto;
+}
+
+.overview-hero__tip-label {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-gold);
+}
+
+.overview-hero__tip-text {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* ── Metric cards ── */
 .overview-metric {
   padding: var(--space-4);
   display: flex;
@@ -197,12 +304,47 @@
   transition: width 600ms var(--ease-out);
 }
 
+/* ── Responsive ── */
+
+/* Pantalla media: sección superior apila, métricas en 2×2 */
+@media (max-width: 920px) {
+  .overview-top {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-bottom {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Compacto (~700×600): campo SSH apilado + tarjetas más densas */
 @media (max-width: 760px) {
   .overview-conn__field {
     grid-template-columns: 1fr;
     gap: 6px;
   }
-  .overview-metrics__grid {
+
+  .overview-metric {
+    padding: var(--space-3);
+    gap: var(--space-2);
+  }
+
+  .overview-metric__chart {
+    height: 40px;
+  }
+
+  .overview-metric__value {
+    font-size: 21px;
+  }
+
+  .overview-hero__time {
+    font-size: 22px;
+  }
+}
+
+/* Muy pequeño: métricas en columna única */
+@media (max-width: 480px) {
+  .overview-bottom {
     grid-template-columns: 1fr;
   }
 }
