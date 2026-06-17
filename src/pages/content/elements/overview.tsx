@@ -17,28 +17,21 @@ import {
 import { open } from '@tauri-apps/plugin-dialog';
 import type { useSshConnection, ConnectionStage } from '../../../hooks/use-ssh-connection';
 import { useTerminalStore } from '../../../stores/use-terminal-store';
-import type { useMockMetrics, MetricId, MetricState, MetricStatus } from '../../../hooks/use-mock-metrics';
+import { useLiveMetrics } from '../../../hooks/use-live-metrics';
+import { useMonitorStore } from '../../../stores/use-monitor-store';
+import type { LiveMetricId, MetricId, MetricState } from '../../../lib/metrics';
 import { useOverviewTips } from '../../../hooks/use-overview-tips';
 import { Sparkline } from '../../../lib/metric-charts';
+import {
+  StatusBadge,
+  cardStateFor,
+  CARD_STATE_BADGE,
+  CARD_STATE_HINT,
+} from '../../../lib/metric-status';
+import type { CardState } from '../../../lib/metric-status';
 import './overview.css';
 
 type Connection = ReturnType<typeof useSshConnection>;
-type Metrics = ReturnType<typeof useMockMetrics>;
-
-const STATUS_LABEL: Record<MetricStatus, string> = {
-  normal: 'Normal',
-  warning: 'Warning',
-  critical: 'Critical',
-};
-
-function StatusBadge({ status }: { status: MetricStatus }) {
-  return (
-    <span className={`dm-badge dm-badge--${status}`}>
-      <span className="dm-badge__pip" aria-hidden="true" />
-      {STATUS_LABEL[status]}
-    </span>
-  );
-}
 
 const STAGE_BADGE: Record<ConnectionStage, { variant: string; label: string; pulse?: boolean }> = {
   idle:       { variant: 'idle',     label: 'Sin verificar' },
@@ -269,22 +262,60 @@ const METRIC_META: Record<MetricId, { icon: LucideIcon; label: string; unit: str
   net:  { icon: Activity,    label: 'Red',      unit: '' },
 };
 
-const OVERVIEW_METRICS: MetricId[] = ['cpu', 'mem', 'disk', 'load'];
+const OVERVIEW_METRICS: LiveMetricId[] = ['cpu', 'mem', 'disk', 'load'];
 
-function MetricCard({ id, data }: { id: MetricId; data: MetricState }) {
+function MetricCard({ id, data, cardState }: { id: MetricId; data: MetricState | null; cardState: CardState }) {
   const meta = METRIC_META[id];
   const Icon = meta.icon;
+
+  if (cardState === 'disconnected' || cardState === 'connecting') {
+    const badge = CARD_STATE_BADGE[cardState];
+    return (
+      <div className={`dm-card overview-metric overview-metric--${cardState}`}>
+        <div className="overview-metric__top">
+          <span className="overview-metric__label">
+            <Icon size={16} strokeWidth={1.5} aria-hidden="true" />
+            <span>{meta.label}</span>
+          </span>
+          <span className={`dm-badge dm-badge--${badge.variant}`}>
+            <span className={`dm-badge__pip${badge.pulse ? ' dm-badge__pip--pulse' : ''}`} aria-hidden="true" />
+            {badge.label}
+          </span>
+        </div>
+        <div className="overview-metric__value-row">
+          <div className="overview-metric__value overview-metric__value--empty">—</div>
+        </div>
+        <div className="overview-metric__chart overview-metric__chart--empty" aria-hidden="true">
+          <span className="overview-metric__chart-line" />
+        </div>
+        <div className="overview-metric__bar">
+          <i style={{ width: '0%' }} />
+        </div>
+        <p className="overview-metric__hint">{CARD_STATE_HINT[cardState]}</p>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
   const value = id === 'load' ? data.value.toFixed(2) : data.value.toFixed(1);
   const percent = id === 'load' ? Math.min((data.value / 4) * 100, 100) : data.value;
 
   return (
-    <div className="dm-card overview-metric">
+    <div className={`dm-card overview-metric${cardState === 'stale' ? ' overview-metric--stale' : ''}`}>
       <div className="overview-metric__top">
         <span className="overview-metric__label">
           <Icon size={16} strokeWidth={1.5} aria-hidden="true" />
           <span>{meta.label}</span>
         </span>
-        <StatusBadge status={data.status} />
+        {cardState === 'stale' ? (
+          <span className={`dm-badge dm-badge--${CARD_STATE_BADGE.stale.variant}`}>
+            <span className="dm-badge__pip" aria-hidden="true" />
+            {CARD_STATE_BADGE.stale.label}
+          </span>
+        ) : (
+          <StatusBadge status={data.status} />
+        )}
       </div>
       <div className="overview-metric__value-row">
         <div className="overview-metric__value">
@@ -305,10 +336,13 @@ function MetricCard({ id, data }: { id: MetricId; data: MetricState }) {
 
 type OverviewProps = {
   connection: Connection;
-  metrics: Metrics;
 };
 
-export default function Overview({ connection, metrics }: OverviewProps) {
+export default function Overview({ connection }: OverviewProps) {
+  const liveMetrics = useLiveMetrics();
+  const lastError = useMonitorStore((s) => s.lastError);
+  const cardState = cardStateFor(connection.stage, liveMetrics !== null, lastError !== null);
+
   return (
     <div className="dashboard__content-inner dm-section">
       <div className="overview-page">
@@ -319,7 +353,7 @@ export default function Overview({ connection, metrics }: OverviewProps) {
 
         <div className="overview-bottom">
           {OVERVIEW_METRICS.map((id) => (
-            <MetricCard key={id} id={id} data={metrics[id]} />
+            <MetricCard key={id} id={id} data={liveMetrics ? liveMetrics[id] : null} cardState={cardState} />
           ))}
         </div>
       </div>

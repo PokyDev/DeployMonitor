@@ -53,7 +53,15 @@
 .monitor-kpi__top {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-2);
+}
+
+.monitor-kpi__top-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
 .monitor-kpi__icon {
@@ -201,6 +209,58 @@
   width: 14px;
   height: 2.5px;
   border-radius: 2px;
+}
+
+/* ── Disconnected / connecting / stale states ── */
+.monitor-kpi--disconnected,
+.monitor-kpi--connecting,
+.monitor-card--disconnected,
+.monitor-card--connecting {
+  border-style: dashed;
+}
+
+.monitor-kpi--disconnected,
+.monitor-card--disconnected {
+  opacity: 0.6;
+}
+
+.monitor-kpi--stale,
+.monitor-card--stale {
+  border-color: var(--color-error-light);
+}
+
+.monitor-kpi__value--empty,
+.monitor-card__value--empty {
+  color: var(--text-muted);
+}
+
+.monitor-kpi__hint {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.monitor-card__chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.monitor-card__chart-line {
+  width: 100%;
+  border-top: 1px dashed var(--border-default);
+}
+
+.monitor-card--connecting .monitor-card__chart-line {
+  animation: dm-pulse-dot 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .monitor-card--connecting .monitor-card__chart-line {
+    animation: none;
+  }
 }
 
 @media (max-width: 760px) {

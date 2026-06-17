@@ -4,7 +4,7 @@ import Terminal from '../../layout/molecule/terminal/terminal';
 import { useDashboardStore } from '../../stores/use-dashboard-store';
 import { useNavStore } from '../../stores/use-nav-store';
 import { useSshConnection } from '../../hooks/use-ssh-connection';
-import { useMockMetrics } from '../../hooks/use-mock-metrics';
+import { useMonitorStore } from '../../stores/use-monitor-store';
 import { useMockScripts } from '../../hooks/use-mock-scripts';
 import { useMockHistory } from '../../hooks/use-mock-history';
 import Overview from './elements/overview';
@@ -29,7 +29,33 @@ export default function Content() {
     setConnectionStage(connection.stage);
   }, [connection.stage, setConnectionStage]);
 
-  const metrics = useMockMetrics(connection.isOnline);
+  // Register the monitor:* event listeners once (guarded module-level inside the store).
+  useEffect(() => {
+    void useMonitorStore.getState().init();
+  }, []);
+
+  // Drives the dedicated metrics-polling SSH connection (independent of the
+  // interactive terminal session) off the same lifecycle the terminal-based
+  // SSH detection already produces. `info` is only populated once a parsable
+  // host/user/port was captured (see use-ssh-connection.ts) — without it the
+  // monitor simply doesn't start and the Overview cards stay in "connecting".
+  useEffect(() => {
+    const monitor = useMonitorStore.getState();
+    if (connection.isOnline && connection.info) {
+      void monitor.start(connection.pemPath, connection.info.user, connection.info.host, connection.info.port);
+    } else {
+      void monitor.stop();
+    }
+  }, [connection.isOnline, connection.info, connection.pemPath]);
+
+  // Defense-in-depth: stop the monitoring connection if Content itself leaves
+  // the tree (e.g. logout navigates away in the same batch as disconnect()).
+  useEffect(() => {
+    return () => {
+      void useMonitorStore.getState().stop();
+    };
+  }, []);
+
   const scripts = useMockScripts();
   const history = useMockHistory();
 
@@ -44,10 +70,10 @@ export default function Content() {
   let section = null;
   switch (activeSection) {
     case 'overview':
-      section = <Overview connection={connection} metrics={metrics} />;
+      section = <Overview connection={connection} />;
       break;
     case 'monitor':
-      section = <Monitor metrics={metrics} />;
+      section = <Monitor connection={connection} />;
       break;
     case 'scripts':
       section = <Scripts scripts={scripts} />;

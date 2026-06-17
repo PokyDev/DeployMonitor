@@ -2,6 +2,7 @@ use std::io::Write;
 use std::sync::{Arc, Mutex};
 
 use portable_pty::{Child, MasterPty};
+use tokio::task::JoinHandle;
 
 /// A live local PTY session: the master side, the writer half (for sending
 /// input), and the spawned shell child process.
@@ -18,4 +19,5 @@ pub struct PtySession {
 #[derive(Default)]
 pub struct AppState {
     pub pty: Arc<Mutex<Option<PtySession>>>,
+    pub monitor: Arc<Mutex<Option<JoinHandle<()>>>>,
 }

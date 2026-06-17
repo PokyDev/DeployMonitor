@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { LazyStore } from '@tauri-apps/plugin-store';
 import { sshTestConnection } from '../lib/tauri-commands';
 import {
@@ -20,6 +20,7 @@ export type ConnectionStage = 'idle' | 'connecting' | 'testing' | 'online' | 've
 export type ConnectionInfo = {
   host: string;
   user: string;
+  port: number;
   latencyMs: number;
 };
 
@@ -124,12 +125,12 @@ export function useSshConnection() {
    * Registers SSH lifecycle callbacks and starts pty:data pattern detection.
    * Shared by both the "Conectar" button flow and manual SSH detection.
    */
-  const startSshFlow = useCallback((user: string, host: string) => {
+  const startSshFlow = useCallback((user: string, host: string, port: number) => {
     const termStore = useTerminalStore.getState();
 
     const onConnected = () => {
       setStage('online');
-      setInfo({ host, user, latencyMs: 0 });
+      setInfo({ host, user, port, latencyMs: 0 });
       setLog([]);
       termStore.writeSystemMessage(buildSshConnectedBanner(user, host));
       termStore.registerSshCallbacks({ sshConnectedCb: null, sshFailedCb: null });
@@ -171,7 +172,7 @@ export function useSshConnection() {
       if (!parsed) return;
       setStage('connecting');
       setLog([]);
-      startSshFlow(parsed.user, parsed.host);
+      startSshFlow(parsed.user, parsed.host, parsed.port ?? 22);
     };
 
     useTerminalStore.getState().registerSshCallbacks({ sshManualDetectCb: onManualDetect });
@@ -184,13 +185,29 @@ export function useSshConnection() {
   // Subscribe to sshConnected changes in the terminal store.
   // This drives stage updates for *all* connection sources — including passive
   // connections where no sshConnectedCb was registered via startSshFlow
-  // (e.g., user typed SSH with tab-completion or pasted the command).
+  // (e.g., user typed SSH with tab-completion or pasted the command, or with
+  // a command that doesn't exactly match SSH_CMD_RE).
+  const connectionStringRef = useRef(connectionString);
+  connectionStringRef.current = connectionString;
+
   useEffect(() => {
     const unsub = useTerminalStore.subscribe((state, prev) => {
       if (state.sshConnected === prev.sshConnected) return;
       if (state.sshConnected) {
         setStage('online');
         setLog([]);
+        // Passive detections never go through startSshFlow/onConnected, so
+        // `info` would otherwise stay null forever — and without it
+        // content.tsx never starts the dedicated metrics-polling connection
+        // (Overview/Monitor stay stuck on "Obteniendo datos"). Fall back to
+        // parsing the connection panel's own field; if a real onConnected
+        // call fires right after this (regex-matched manual or button flow),
+        // its precise values simply overwrite this best-effort guess.
+        setInfo((prevInfo) => {
+          if (prevInfo) return prevInfo;
+          const parsed = parseSshCommand(connectionStringRef.current);
+          return parsed ? { host: parsed.host, user: parsed.user, port: parsed.port ?? 22, latencyMs: 0 } : null;
+        });
       } else {
         setStage('idle');
         setLog([]);
@@ -220,7 +237,7 @@ export function useSshConnection() {
     setStage('connecting');
     setLog([`Iniciando conexión a ${parsed.host}…`]);
 
-    startSshFlow(parsed.user, parsed.host);
+    startSshFlow(parsed.user, parsed.host, parsed.port ?? 22);
 
     const termStore = useTerminalStore.getState();
     const dashStore = useDashboardStore.getState();
@@ -296,7 +313,7 @@ export function useSshConnection() {
       const result = await sshTestConnection(pemPath, parsed.user, parsed.host, parsed.port);
       append('Conexión establecida exitosamente.');
       append(`Latencia: ${result.latency_ms} ms`);
-      setInfo({ host: parsed.host, user: parsed.user, latencyMs: result.latency_ms });
+      setInfo({ host: parsed.host, user: parsed.user, port: parsed.port ?? 22, latencyMs: result.latency_ms });
       setStage('verified');
     } catch (err: unknown) {
       const e = err as { code?: string; message?: string };

@@ -5,6 +5,7 @@ mod state;
 
 use tauri::Manager;
 
+use commands::monitoring::{monitor_start, monitor_stop};
 use commands::pty::{pty_resize, pty_start, pty_stop, pty_write};
 use commands::ssh::ssh_test_connection;
 use state::AppState;
@@ -17,8 +18,13 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
-            pty_start, pty_write, pty_resize, pty_stop,
-            ssh_test_connection
+            pty_start,
+            pty_write,
+            pty_resize,
+            pty_stop,
+            ssh_test_connection,
+            monitor_start,
+            monitor_stop
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -26,6 +32,7 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 let state = app_handle.state::<AppState>();
                 let _ = services::pty_service::kill(&state);
+                let _ = services::monitor_service::stop(&state);
             }
         });
 }

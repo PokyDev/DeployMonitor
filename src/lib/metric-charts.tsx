@@ -1,5 +1,5 @@
 import { Area, AreaChart, ResponsiveContainer, YAxis, CartesianGrid } from 'recharts';
-import type { MetricPoint } from '../hooks/use-mock-metrics';
+import type { MetricPoint } from './metrics';
 
 const GOLD = '#D4AF37';
 const SERIES_COLORS = [GOLD, '#2874A6', '#9A9A9A'];

@@ -35,6 +35,14 @@ pub enum AppError {
     #[error("SSH authentication failed — key rejected by server")]
     SshAuthFailed,
 
+    #[error("SSH connection failed: {0}")]
+    SshConnectionFailed(String),
+
+    #[error("Failed to parse remote metrics output: {0}")]
+    MetricsParseFailed(String),
+
+    #[error("Monitor error: {0}")]
+    Monitor(String),
 }
 
 impl Serialize for AppError {
@@ -53,6 +61,9 @@ impl Serialize for AppError {
             AppError::SshHostUnreachable(msg) => ("SSH_HOST_UNREACHABLE", msg.clone()),
             AppError::SshTimeout => ("SSH_TIMEOUT", self.to_string()),
             AppError::SshAuthFailed => ("SSH_AUTH_FAILED", self.to_string()),
+            AppError::SshConnectionFailed(msg) => ("SSH_CONNECTION_FAILED", msg.clone()),
+            AppError::MetricsParseFailed(msg) => ("METRICS_PARSE_FAILED", msg.clone()),
+            AppError::Monitor(msg) => ("MONITOR_ERROR", msg.clone()),
         };
         let mut state = serializer.serialize_struct("AppError", 2)?;
         state.serialize_field("code", code)?;

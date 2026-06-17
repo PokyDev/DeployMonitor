@@ -304,6 +304,53 @@
   transition: width 600ms var(--ease-out);
 }
 
+/* ── Disconnected / connecting / stale states ── */
+.overview-metric--disconnected,
+.overview-metric--connecting {
+  border-style: dashed;
+}
+
+.overview-metric--disconnected {
+  opacity: 0.6;
+}
+
+.overview-metric--stale {
+  border-color: var(--color-error-light);
+}
+
+.overview-metric__value--empty {
+  color: var(--text-muted);
+}
+
+.overview-metric__chart--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.overview-metric__chart-line {
+  width: 100%;
+  border-top: 1px dashed var(--border-default);
+}
+
+.overview-metric--connecting .overview-metric__chart-line {
+  animation: dm-pulse-dot 1.6s ease-in-out infinite;
+}
+
+.overview-metric__hint {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overview-metric--connecting .overview-metric__chart-line {
+    animation: none;
+  }
+}
+
 /* ── Responsive ── */
 
 /* Pantalla media: sección superior apila, métricas en 2×2 */

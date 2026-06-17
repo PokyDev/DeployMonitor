@@ -38,3 +38,44 @@ export async function sshTestConnection(
     port: port ?? null,
   });
 }
+
+export type MetricSnapshot = {
+  cpu_pct: number;
+  mem_used_mb: number;
+  mem_total_mb: number;
+  disk_used_gb: number;
+  disk_total_gb: number;
+  load_avg_1: number;
+  load_avg_5: number;
+  load_avg_15: number;
+  swap_used_mb: number;
+  swap_total_mb: number;
+  net_rx_mbs: number;
+  net_tx_mbs: number;
+  uptime_secs: number;
+  process_count: number;
+  connection_count: number;
+  temp_c: number | null;
+  sampled_at: string;
+};
+
+/** Starts polling the instance for live metrics over a dedicated SSH connection
+ * (independent of the interactive terminal session). No-op if already running. */
+export async function monitorStart(
+  pemPath: string,
+  user: string,
+  host: string,
+  port?: number,
+): Promise<void> {
+  await invoke('monitor_start', {
+    pemPath,
+    user,
+    host,
+    port: port ?? null,
+  });
+}
+
+/** Stops the metrics polling loop. No-op if not running. */
+export async function monitorStop(): Promise<void> {
+  await invoke('monitor_stop');
+}
