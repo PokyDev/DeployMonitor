@@ -1,15 +1,24 @@
-import { useEffect, useRef } from 'react';
-import { Plus, FileCode, Edit3, Trash2, Save, Zap, Activity, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import {
+  Plus,
+  FileCode,
+  FilePlus2,
+  Edit3,
+  Trash2,
+  Save,
+  Zap,
+  Activity,
+  X,
+  ArrowLeft,
+  MousePointerSquareDashed,
+  MousePointerClick,
+  MousePointer2,
+  MouseRight,
+} from 'lucide-react';
 import type { useMockScripts, ScriptDef } from '../../../hooks/use-mock-scripts';
 import './scripts.css';
 
 type Scripts = ReturnType<typeof useMockScripts>;
-
-const LANG_PILL: Record<ScriptDef['lang'], string> = {
-  bash: 'bash',
-  python: 'python',
-  node: 'node',
-};
 
 type Token = { text: string; cls?: 'kw' | 'str' | 'cmt' | 'var' };
 
@@ -46,19 +55,32 @@ function CodeLine({ text }: { text: string }) {
   );
 }
 
-function ScriptListItem({ script, active, onSelect }: { script: ScriptDef; active: boolean; onSelect: () => void }) {
+function CodeBlock({ lines }: { lines: string[] }) {
+  return (
+    <>
+      <div className="scripts-gutter" aria-hidden="true">
+        {lines.map((_, i) => <div key={i}>{i + 1}</div>)}
+      </div>
+      <div className="scripts-code">
+        {lines.map((line, i) => <CodeLine key={i} text={line} />)}
+      </div>
+    </>
+  );
+}
+
+function ScriptListItem({ script, active, onPreview, onOpen }: { script: ScriptDef; active: boolean; onPreview: () => void; onOpen: () => void }) {
   return (
     <div
       role="button"
       tabIndex={0}
       className={`scripts-item${active ? ' scripts-item--active' : ''}`}
-      onClick={onSelect}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect(); }}
+      onClick={(e) => { e.stopPropagation(); onPreview(); }}
+      onDoubleClick={(e) => { e.stopPropagation(); onOpen(); }}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onOpen(); }}
     >
       <div className="scripts-item__top">
         <FileCode size={15} strokeWidth={1.5} className="scripts-item__icon" aria-hidden="true" />
         <span className="scripts-item__name">{script.name}</span>
-        <span className="dm-badge dm-badge--idle scripts-item__pill">{LANG_PILL[script.lang]}</span>
       </div>
       <div className="scripts-item__path">{script.path}</div>
       <div className="scripts-item__actions">
@@ -82,18 +104,30 @@ export default function Scripts({ scripts }: ScriptsProps) {
   const codeLines = selected.source.split('\n');
   const isRunning = execution?.scriptId === selected.id && execution.status === 'running';
   const outputRef = useRef<HTMLDivElement>(null);
+  const [showEditor, setShowEditor] = useState(false);
+  const [hasPreview, setHasPreview] = useState(false);
 
   useEffect(() => {
     if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
   }, [execution?.lines]);
 
-  const handleSelect = (id: string) => {
+  const handlePreview = (id: string) => {
     select(id);
     if (execution && execution.scriptId !== id) reset();
+    setHasPreview(true);
   };
 
+  const handleOpen = (id: string) => {
+    handlePreview(id);
+    setShowEditor(true);
+  };
+
+  const handleBack = () => setShowEditor(false);
+
+  const handleDeselect = () => setHasPreview(false);
+
   return (
-    <div className="dashboard__content-inner dm-section scripts-section">
+    <div className={`dashboard__content-inner dm-section scripts-section${showEditor ? ' scripts-section--detail' : ''}`}>
       <div className="dm-section-bar">
         <div>
           <div className="dm-section-title">Scripts</div>
@@ -102,7 +136,7 @@ export default function Scripts({ scripts }: ScriptsProps) {
       </div>
 
       <div className="scripts-wrap">
-        <div className="scripts-list">
+        <div className={`scripts-list${hasPreview ? '' : ' scripts-list--no-preview'}`} onClick={handleDeselect}>
           <button type="button" className="dm-btn scripts-list__new">
             <Plus size={15} strokeWidth={1.5} aria-hidden="true" />
             Nuevo script
@@ -113,26 +147,87 @@ export default function Scripts({ scripts }: ScriptsProps) {
                 key={script.id}
                 script={script}
                 active={script.id === selected.id}
-                onSelect={() => handleSelect(script.id)}
+                onPreview={() => handlePreview(script.id)}
+                onOpen={() => handleOpen(script.id)}
               />
             ))}
           </div>
         </div>
 
+        <div className={`scripts-preview${hasPreview ? '' : ' scripts-preview--empty'}`}>
+          {hasPreview ? (
+            <>
+              <div className="scripts-preview__header">
+                <FileCode size={14} strokeWidth={1.5} className="scripts-editor__tab-icon" aria-hidden="true" />
+                {selected.name}
+              </div>
+              <div className="scripts-preview__body">
+                <CodeBlock lines={codeLines} />
+              </div>
+              <div className="scripts-preview__hint">Doble click para abrir</div>
+            </>
+          ) : (
+            <div className="scripts-preview__empty">
+              <div className="scripts-preview__empty-icon">
+                <MousePointerSquareDashed size={20} strokeWidth={1.5} aria-hidden="true" />
+              </div>
+              <p className="scripts-preview__empty-title">Explora tus scripts</p>
+              <p className="scripts-preview__empty-sub">Esto es lo que puedes hacer con tus archivos:</p>
+              <ul className="scripts-preview__guide">
+                <li className="scripts-preview__guide-item scripts-preview__guide-item--create">
+                  <span className="scripts-preview__guide-icon">
+                    <FilePlus2 size={14} strokeWidth={1.5} aria-hidden="true" />
+                  </span>
+                  <span className="scripts-preview__guide-text">
+                    <strong>Crear</strong>
+                    <span>Define el nombre y formato de tu nuevo script.</span>
+                  </span>
+                </li>
+                <li className="scripts-preview__guide-item scripts-preview__guide-item--preview">
+                  <span className="scripts-preview__guide-icon">
+                    <MousePointerClick size={14} strokeWidth={1.5} aria-hidden="true" />
+                  </span>
+                  <span className="scripts-preview__guide-text">
+                    <strong>Previsualizar</strong>
+                    <span>Un click selecciona el archivo y muestra su contenido aquí.</span>
+                  </span>
+                </li>
+                <li className="scripts-preview__guide-item scripts-preview__guide-item--open">
+                  <span className="scripts-preview__guide-icon">
+                    <MousePointer2 size={14} strokeWidth={1.5} aria-hidden="true" />
+                  </span>
+                  <span className="scripts-preview__guide-text">
+                    <strong>Editar y ejecutar</strong>
+                    <span>Doble click abre el editor completo del script.</span>
+                  </span>
+                </li>
+                <li className="scripts-preview__guide-item scripts-preview__guide-item--delete">
+                  <span className="scripts-preview__guide-icon">
+                    <MouseRight size={14} strokeWidth={1.5} aria-hidden="true" />
+                  </span>
+                  <span className="scripts-preview__guide-text">
+                    <strong>Eliminar</strong>
+                    <span>Click derecho sobre un script y selecciona "Eliminar".</span>
+                  </span>
+                </li>
+              </ul>
+            </div>
+          )}
+        </div>
+
         <div className="scripts-editor">
           <div className="scripts-editor__tabs">
+            <button type="button" className="scripts-editor__back" onClick={handleBack}>
+              <ArrowLeft size={14} strokeWidth={1.5} aria-hidden="true" />
+              Volver
+            </button>
             <div className="scripts-editor__tab scripts-editor__tab--active">
               <FileCode size={14} strokeWidth={1.5} className="scripts-editor__tab-icon" aria-hidden="true" />
               {selected.name}
             </div>
           </div>
           <div className="scripts-editor__body">
-            <div className="scripts-gutter" aria-hidden="true">
-              {codeLines.map((_, i) => <div key={i}>{i + 1}</div>)}
-            </div>
-            <div className="scripts-code">
-              {codeLines.map((line, i) => <CodeLine key={i} text={line} />)}
-            </div>
+            <CodeBlock lines={codeLines} />
           </div>
           <div className="scripts-editor__actions">
             <span className="scripts-editor__spacer" />
