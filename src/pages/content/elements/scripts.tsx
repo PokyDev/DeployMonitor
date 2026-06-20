@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import {
   Plus,
   FileCode,
   FilePlus2,
-  Edit3,
-  Trash2,
   Save,
   Zap,
-  Activity,
   X,
+  RefreshCw,
   ArrowLeft,
   MousePointerSquareDashed,
   MousePointerClick,
@@ -83,15 +82,34 @@ function ScriptListItem({ script, active, onPreview, onOpen }: { script: ScriptD
         <span className="scripts-item__name">{script.name}</span>
       </div>
       <div className="scripts-item__path">{script.path}</div>
-      <div className="scripts-item__actions">
-        <span className="scripts-icon-btn" role="button" tabIndex={-1} title="Editar" aria-label="Editar script">
-          <Edit3 size={13} strokeWidth={1.5} aria-hidden="true" />
-        </span>
-        <span className="scripts-icon-btn" role="button" tabIndex={-1} title="Eliminar" aria-label="Eliminar script">
-          <Trash2 size={13} strokeWidth={1.5} aria-hidden="true" />
-        </span>
-      </div>
     </div>
+  );
+}
+
+type EditorToolbarButtonProps = {
+  icon: LucideIcon;
+  label: string;
+  onClick?: () => void;
+  active?: boolean;
+  pulse?: boolean;
+  pressed?: boolean;
+};
+
+function EditorToolbarButton({ icon: Icon, label, onClick, active, pulse, pressed }: EditorToolbarButtonProps) {
+  const [hover, setHover] = useState(false);
+  return (
+    <button
+      type="button"
+      className={`scripts-toolbar-btn${active ? ' scripts-toolbar-btn--active' : ''}${pulse ? ' scripts-run-btn--active' : ''}`}
+      onClick={onClick}
+      aria-label={label}
+      aria-pressed={pressed}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      <Icon size={15} strokeWidth={1.5} aria-hidden="true" />
+      {hover && <span className="scripts-toolbar-btn__tooltip" role="tooltip">{label}</span>}
+    </button>
   );
 }
 
@@ -106,6 +124,7 @@ export default function Scripts({ scripts }: ScriptsProps) {
   const outputRef = useRef<HTMLDivElement>(null);
   const [showEditor, setShowEditor] = useState(false);
   const [hasPreview, setHasPreview] = useState(false);
+  const [autosave, setAutosave] = useState(false);
 
   useEffect(() => {
     if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
@@ -217,41 +236,36 @@ export default function Scripts({ scripts }: ScriptsProps) {
 
         <div className="scripts-editor">
           <div className="scripts-editor__tabs">
-            <button type="button" className="scripts-editor__back" onClick={handleBack}>
-              <ArrowLeft size={14} strokeWidth={1.5} aria-hidden="true" />
-              Volver
-            </button>
-            <div className="scripts-editor__tab scripts-editor__tab--active">
-              <FileCode size={14} strokeWidth={1.5} className="scripts-editor__tab-icon" aria-hidden="true" />
-              {selected.name}
+            <div className="scripts-editor__tabs-left">
+              <button type="button" className="scripts-editor__back" onClick={handleBack}>
+                <ArrowLeft size={14} strokeWidth={1.5} aria-hidden="true" />
+                Volver
+              </button>
+              <div className="scripts-editor__tab scripts-editor__tab--active">
+                <FileCode size={14} strokeWidth={1.5} className="scripts-editor__tab-icon" aria-hidden="true" />
+                {selected.name}
+              </div>
+            </div>
+            <div className="scripts-toolbar">
+              <EditorToolbarButton
+                icon={RefreshCw}
+                label={autosave ? 'Autoguardado activado' : 'Activar autoguardado'}
+                active={autosave}
+                pressed={autosave}
+                onClick={() => setAutosave((v) => !v)}
+              />
+              <EditorToolbarButton icon={Save} label="Guardar" />
+              <EditorToolbarButton
+                icon={isRunning ? X : Zap}
+                label={isRunning ? 'Cancelar ejecución' : 'Ejecutar script'}
+                active={isRunning}
+                pulse={isRunning}
+                onClick={() => (isRunning ? reset() : run(selected.id))}
+              />
             </div>
           </div>
           <div className="scripts-editor__body">
             <CodeBlock lines={codeLines} />
-          </div>
-          <div className="scripts-editor__actions">
-            <span className="scripts-editor__spacer" />
-            <button type="button" className="dm-btn dm-btn--sm">
-              <Save size={14} strokeWidth={1.5} aria-hidden="true" />
-              Guardar
-            </button>
-            {isRunning && (
-              <button type="button" className="dm-btn dm-btn--sm dm-btn--danger" onClick={reset}>
-                <X size={14} strokeWidth={1.5} aria-hidden="true" />
-                Cancelar
-              </button>
-            )}
-            <button
-              type="button"
-              className={`dm-btn dm-btn--sm dm-btn--primary${isRunning ? ' scripts-run-btn--active' : ''}`}
-              onClick={() => run(selected.id)}
-              disabled={isRunning}
-            >
-              {isRunning
-                ? <Activity size={14} strokeWidth={1.5} className="scripts-spin" aria-hidden="true" />
-                : <Zap size={14} strokeWidth={1.5} aria-hidden="true" />}
-              {isRunning ? 'Ejecutando…' : 'Ejecutar'}
-            </button>
           </div>
 
           {execution?.scriptId === selected.id && (
