@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
+import { open } from '@tauri-apps/plugin-dialog';
 import {
   Plus,
   FileCode,
   FilePlus2,
+  FolderOpen,
   Save,
   Zap,
-  X,
   RefreshCw,
   ArrowLeft,
   MousePointerSquareDashed,
@@ -14,10 +15,10 @@ import {
   MousePointer2,
   MouseRight,
 } from 'lucide-react';
-import type { useMockScripts, ScriptDef } from '../../../hooks/use-mock-scripts';
+import type { useScriptFiles, ScriptFileEntry } from '../../../hooks/use-script-files';
 import './scripts.css';
 
-type Scripts = ReturnType<typeof useMockScripts>;
+type Scripts = ReturnType<typeof useScriptFiles>;
 
 type Token = { text: string; cls?: 'kw' | 'str' | 'cmt' | 'var' };
 
@@ -47,7 +48,7 @@ function CodeLine({ text }: { text: string }) {
   const tokens = tokenizeLine(text);
   return (
     <div className="scripts-code__line">
-      {text === '' ? ' ' : tokens.map((tok, i) => (
+      {text === '' ? ' ' : tokens.map((tok, i) => (
         tok.cls ? <span key={i} className={`scripts-tok scripts-tok--${tok.cls}`}>{tok.text}</span> : <span key={i}>{tok.text}</span>
       ))}
     </div>
@@ -67,7 +68,39 @@ function CodeBlock({ lines }: { lines: string[] }) {
   );
 }
 
-function ScriptListItem({ script, active, onPreview, onOpen }: { script: ScriptDef; active: boolean; onPreview: () => void; onOpen: () => void }) {
+/** Editable code surface: the highlighted `CodeBlock` is the visual layer,
+ * a transparent `<textarea>` on top is the real (and only) scrollable
+ * element, so it owns native undo/redo, selection and IME for free. The
+ * textarea's onScroll copies scrollTop/scrollLeft onto the highlight layer
+ * to keep both perfectly in sync ("textarea over pre" technique). */
+function CodeEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const highlightRef = useRef<HTMLDivElement>(null);
+  const lines = value.split('\n');
+
+  const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
+    if (!highlightRef.current) return;
+    highlightRef.current.scrollTop = e.currentTarget.scrollTop;
+    highlightRef.current.scrollLeft = e.currentTarget.scrollLeft;
+  };
+
+  return (
+    <div className="scripts-editbox">
+      <div className="scripts-editbox__view" ref={highlightRef} aria-hidden="true">
+        <CodeBlock lines={lines} />
+      </div>
+      <textarea
+        className="scripts-editbox__textarea"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onScroll={handleScroll}
+        spellCheck={false}
+        aria-label="Contenido del script"
+      />
+    </div>
+  );
+}
+
+function ScriptListItem({ script, active, onPreview, onOpen }: { script: ScriptFileEntry; active: boolean; onPreview: () => void; onOpen: () => void }) {
   return (
     <div
       role="button"
@@ -86,6 +119,46 @@ function ScriptListItem({ script, active, onPreview, onOpen }: { script: ScriptD
   );
 }
 
+/** Inline "new file" card rendered above the list while creating. Confirms
+ * on blur/Enter with a non-empty name, cancels on blur/Enter when empty. */
+function NewFileCard({ error, onConfirm, onCancel }: { error: string | null; onConfirm: (name: string) => void; onCancel: () => void }) {
+  const [value, setValue] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const commit = () => {
+    if (value.trim()) onConfirm(value);
+    else onCancel();
+  };
+
+  return (
+    <div className="scripts-item scripts-item--creating" onClick={(e) => e.stopPropagation()}>
+      <div className="scripts-item__top">
+        <FileCode size={15} strokeWidth={1.5} className="scripts-item__icon" aria-hidden="true" />
+        <input
+          ref={inputRef}
+          className="scripts-item__name-input"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              commit();
+            }
+          }}
+          placeholder="nombre-del-script.sh"
+          spellCheck={false}
+        />
+      </div>
+      {error && <div className="scripts-item__error">{error}</div>}
+    </div>
+  );
+}
+
 type EditorToolbarButtonProps = {
   icon: LucideIcon;
   label: string;
@@ -93,15 +166,17 @@ type EditorToolbarButtonProps = {
   active?: boolean;
   pulse?: boolean;
   pressed?: boolean;
+  disabled?: boolean;
 };
 
-function EditorToolbarButton({ icon: Icon, label, onClick, active, pulse, pressed }: EditorToolbarButtonProps) {
+function EditorToolbarButton({ icon: Icon, label, onClick, active, pulse, pressed, disabled }: EditorToolbarButtonProps) {
   const [hover, setHover] = useState(false);
   return (
     <button
       type="button"
       className={`scripts-toolbar-btn${active ? ' scripts-toolbar-btn--active' : ''}${pulse ? ' scripts-run-btn--active' : ''}`}
       onClick={onClick}
+      disabled={disabled}
       aria-label={label}
       aria-pressed={pressed}
       onMouseEnter={() => setHover(true)}
@@ -113,31 +188,57 @@ function EditorToolbarButton({ icon: Icon, label, onClick, active, pulse, presse
   );
 }
 
+/** Opens the native directory picker. Returns null if the user cancels. */
+async function pickScriptDirectory(): Promise<string | null> {
+  const result = await open({ directory: true, multiple: false });
+  if (typeof result === 'string') return result;
+  return null;
+}
+
+function contentStatusLines(loading: boolean, error: string | null): string[] | null {
+  if (loading) return ['Cargando…'];
+  if (error) return [error];
+  return null;
+}
+
 type ScriptsProps = {
   scripts: Scripts;
 };
 
 export default function Scripts({ scripts }: ScriptsProps) {
-  const { scripts: list, selected, select, execution, run, reset } = scripts;
-  const codeLines = selected.source.split('\n');
-  const isRunning = execution?.scriptId === selected.id && execution.status === 'running';
-  const outputRef = useRef<HTMLDivElement>(null);
+  const {
+    directoryPath,
+    setDirectoryPath,
+    files,
+    filesLoading,
+    filesError,
+    selected,
+    selectFile,
+    content,
+    contentLoading,
+    contentError,
+    setContent,
+    dirty,
+    autosave,
+    setAutosave,
+    save,
+    creating,
+    createError,
+    startCreate,
+    confirmCreate,
+    cancelCreate,
+  } = scripts;
+
   const [showEditor, setShowEditor] = useState(false);
   const [hasPreview, setHasPreview] = useState(false);
-  const [autosave, setAutosave] = useState(false);
 
-  useEffect(() => {
-    if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
-  }, [execution?.lines]);
-
-  const handlePreview = (id: string) => {
-    select(id);
-    if (execution && execution.scriptId !== id) reset();
+  const handlePreview = (path: string) => {
+    selectFile(path);
     setHasPreview(true);
   };
 
-  const handleOpen = (id: string) => {
-    handlePreview(id);
+  const handleOpen = (path: string) => {
+    handlePreview(path);
     setShowEditor(true);
   };
 
@@ -145,43 +246,77 @@ export default function Scripts({ scripts }: ScriptsProps) {
 
   const handleDeselect = () => setHasPreview(false);
 
+  const handlePickDirectory = async () => {
+    const dir = await pickScriptDirectory();
+    if (dir) setDirectoryPath(dir);
+  };
+
+  const statusLines = contentStatusLines(contentLoading, contentError);
+  const subtitle = !directoryPath
+    ? 'Selecciona un directorio para ver tus scripts'
+    : filesLoading
+      ? 'Cargando archivos…'
+      : filesError
+        ? filesError
+        : `${files.length} archivo(s) en el directorio`;
+
   return (
     <div className={`dashboard__content-inner dm-section scripts-section${showEditor ? ' scripts-section--detail' : ''}`}>
       <div className="dm-section-bar">
         <div>
           <div className="dm-section-title">Scripts</div>
-          <div className="dm-section-desc">{list.length} scripts disponibles para ejecución remota</div>
+          <div className="dm-section-desc">{subtitle}</div>
+        </div>
+        <div className="dm-input-row scripts-dir-field">
+          <input
+            className="dm-input dm-input--readonly"
+            value={directoryPath}
+            readOnly
+            placeholder="Ningún directorio seleccionado"
+            spellCheck={false}
+          />
+          <button type="button" className="dm-btn" onClick={handlePickDirectory}>
+            <FolderOpen size={15} strokeWidth={1.5} aria-hidden="true" />
+            Elegir carpeta
+          </button>
         </div>
       </div>
 
       <div className="scripts-wrap">
         <div className={`scripts-list${hasPreview ? '' : ' scripts-list--no-preview'}`} onClick={handleDeselect}>
-          <button type="button" className="dm-btn scripts-list__new">
+          <button type="button" className="dm-btn scripts-list__new" onClick={(e) => { e.stopPropagation(); startCreate(); }} disabled={!directoryPath}>
             <Plus size={15} strokeWidth={1.5} aria-hidden="true" />
             Nuevo script
           </button>
           <div className="scripts-list__inner">
-            {list.map((script) => (
+            {creating && (
+              <NewFileCard
+                error={createError}
+                onConfirm={(name) => void confirmCreate(name)}
+                onCancel={cancelCreate}
+              />
+            )}
+            {files.map((script) => (
               <ScriptListItem
-                key={script.id}
+                key={script.path}
                 script={script}
-                active={script.id === selected.id}
-                onPreview={() => handlePreview(script.id)}
-                onOpen={() => handleOpen(script.id)}
+                active={script.path === selected?.path}
+                onPreview={() => handlePreview(script.path)}
+                onOpen={() => handleOpen(script.path)}
               />
             ))}
           </div>
         </div>
 
         <div className={`scripts-preview${hasPreview ? '' : ' scripts-preview--empty'}`}>
-          {hasPreview ? (
+          {hasPreview && selected ? (
             <>
               <div className="scripts-preview__header">
                 <FileCode size={14} strokeWidth={1.5} className="scripts-editor__tab-icon" aria-hidden="true" />
                 {selected.name}
               </div>
               <div className="scripts-preview__body">
-                <CodeBlock lines={codeLines} />
+                <CodeBlock lines={statusLines ?? content.split('\n')} />
               </div>
               <div className="scripts-preview__hint">Doble click para abrir</div>
             </>
@@ -243,7 +378,7 @@ export default function Scripts({ scripts }: ScriptsProps) {
               </button>
               <div className="scripts-editor__tab scripts-editor__tab--active">
                 <FileCode size={14} strokeWidth={1.5} className="scripts-editor__tab-icon" aria-hidden="true" />
-                {selected.name}
+                {selected?.name}
               </div>
             </div>
             <div className="scripts-toolbar">
@@ -252,32 +387,28 @@ export default function Scripts({ scripts }: ScriptsProps) {
                 label={autosave ? 'Autoguardado activado' : 'Activar autoguardado'}
                 active={autosave}
                 pressed={autosave}
-                onClick={() => setAutosave((v) => !v)}
+                onClick={() => setAutosave(!autosave)}
               />
-              <EditorToolbarButton icon={Save} label="Guardar" />
               <EditorToolbarButton
-                icon={isRunning ? X : Zap}
-                label={isRunning ? 'Cancelar ejecución' : 'Ejecutar script'}
-                active={isRunning}
-                pulse={isRunning}
-                onClick={() => (isRunning ? reset() : run(selected.id))}
+                icon={Save}
+                label="Guardar"
+                onClick={() => void save()}
+                disabled={!selected || !dirty}
+              />
+              <EditorToolbarButton
+                icon={Zap}
+                label="Ejecutar script (próximamente)"
+                disabled
               />
             </div>
           </div>
           <div className="scripts-editor__body">
-            <CodeBlock lines={codeLines} />
+            {statusLines ? (
+              <CodeBlock lines={statusLines} />
+            ) : (
+              <CodeEditor value={content} onChange={setContent} />
+            )}
           </div>
-
-          {execution?.scriptId === selected.id && (
-            <div className="scripts-output" ref={outputRef} role="log" aria-live="polite">
-              {execution.lines.map((line, i) => (
-                <div key={i} className="scripts-output__line">{line}</div>
-              ))}
-              {execution.status === 'success' && (
-                <div className="scripts-output__line scripts-output__line--ok">✔ Ejecución finalizada (código 0)</div>
-              )}
-            </div>
-          )}
         </div>
       </div>
     </div>

@@ -5,7 +5,7 @@ import { useDashboardStore } from '../../stores/use-dashboard-store';
 import { useNavStore } from '../../stores/use-nav-store';
 import { useSshConnection } from '../../hooks/use-ssh-connection';
 import { useMonitorStore } from '../../stores/use-monitor-store';
-import { useMockScripts } from '../../hooks/use-mock-scripts';
+import { useScriptFiles } from '../../hooks/use-script-files';
 import { useMockHistory } from '../../hooks/use-mock-history';
 import Overview from './elements/overview';
 import Monitor from './elements/monitor';
@@ -56,10 +56,12 @@ export default function Content() {
     };
   }, []);
 
-  const scripts = useMockScripts();
+  const scripts = useScriptFiles();
   const history = useMockHistory();
 
-  const runningScripts = scripts.execution?.status === 'running' ? 1 : 0;
+  // Remote execution isn't implemented yet (Execute is disabled in the UI),
+  // so there's never a running script to report.
+  const runningScripts = 0;
 
   const handleLogout = () => {
     connection.disconnect();

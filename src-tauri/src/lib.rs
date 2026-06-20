@@ -7,6 +7,7 @@ use tauri::Manager;
 
 use commands::monitoring::{monitor_start, monitor_stop};
 use commands::pty::{pty_resize, pty_start, pty_stop, pty_write};
+use commands::scripts::{script_fs_create, script_fs_list, script_fs_read, script_fs_write};
 use commands::ssh::ssh_test_connection;
 use state::AppState;
 
@@ -24,7 +25,11 @@ pub fn run() {
             pty_stop,
             ssh_test_connection,
             monitor_start,
-            monitor_stop
+            monitor_stop,
+            script_fs_list,
+            script_fs_read,
+            script_fs_write,
+            script_fs_create
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

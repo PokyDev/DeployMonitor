@@ -79,3 +79,28 @@ export async function monitorStart(
 export async function monitorStop(): Promise<void> {
   await invoke('monitor_stop');
 }
+
+export type ScriptFileEntry = {
+  name: string;
+  path: string;
+};
+
+/** Lists files directly inside a directory (non-recursive). Throws { code, message } on failure. */
+export async function scriptFsList(dirPath: string): Promise<ScriptFileEntry[]> {
+  return await invoke<ScriptFileEntry[]>('script_fs_list', { dirPath });
+}
+
+/** Reads a file's content as UTF-8 text. Throws { code, message } on failure (e.g. binary file). */
+export async function scriptFsRead(path: string): Promise<string> {
+  return await invoke<string>('script_fs_read', { path });
+}
+
+/** Overwrites a file's content. Used by both manual save and autosave. */
+export async function scriptFsWrite(path: string, content: string): Promise<void> {
+  await invoke('script_fs_write', { path, content });
+}
+
+/** Creates a new empty file inside a directory. Throws { code, message } on failure (e.g. already exists). */
+export async function scriptFsCreate(dirPath: string, fileName: string): Promise<ScriptFileEntry> {
+  return await invoke<ScriptFileEntry>('script_fs_create', { dirPath, fileName });
+}
