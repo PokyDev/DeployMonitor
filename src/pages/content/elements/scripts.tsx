@@ -9,9 +9,8 @@ import {
   Save,
   Zap,
   RefreshCw,
-  ArrowLeft,
+  Trash2,
   MousePointerSquareDashed,
-  MousePointerClick,
   MousePointer2,
   MouseRight,
 } from 'lucide-react';
@@ -100,15 +99,15 @@ function CodeEditor({ value, onChange }: { value: string; onChange: (value: stri
   );
 }
 
-function ScriptListItem({ script, active, onPreview, onOpen }: { script: ScriptFileEntry; active: boolean; onPreview: () => void; onOpen: () => void }) {
+function ScriptListItem({ script, active, onSelect, onContextMenu }: { script: ScriptFileEntry; active: boolean; onSelect: () => void; onContextMenu: (e: React.MouseEvent) => void }) {
   return (
     <div
       role="button"
       tabIndex={0}
       className={`scripts-item${active ? ' scripts-item--active' : ''}`}
-      onClick={(e) => { e.stopPropagation(); onPreview(); }}
-      onDoubleClick={(e) => { e.stopPropagation(); onOpen(); }}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onOpen(); }}
+      onClick={onSelect}
+      onContextMenu={onContextMenu}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect(); }}
     >
       <div className="scripts-item__top">
         <FileCode size={15} strokeWidth={1.5} className="scripts-item__icon" aria-hidden="true" />
@@ -167,14 +166,15 @@ type EditorToolbarButtonProps = {
   pulse?: boolean;
   pressed?: boolean;
   disabled?: boolean;
+  danger?: boolean;
 };
 
-function EditorToolbarButton({ icon: Icon, label, onClick, active, pulse, pressed, disabled }: EditorToolbarButtonProps) {
+function EditorToolbarButton({ icon: Icon, label, onClick, active, pulse, pressed, disabled, danger }: EditorToolbarButtonProps) {
   const [hover, setHover] = useState(false);
   return (
     <button
       type="button"
-      className={`scripts-toolbar-btn${active ? ' scripts-toolbar-btn--active' : ''}${pulse ? ' scripts-run-btn--active' : ''}`}
+      className={`scripts-toolbar-btn${active ? ' scripts-toolbar-btn--active' : ''}${pulse ? ' scripts-run-btn--active' : ''}${danger ? ' scripts-toolbar-btn--danger' : ''}`}
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
@@ -227,24 +227,35 @@ export default function Scripts({ scripts }: ScriptsProps) {
     startCreate,
     confirmCreate,
     cancelCreate,
+    deleteFile,
   } = scripts;
 
-  const [showEditor, setShowEditor] = useState(false);
-  const [hasPreview, setHasPreview] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
 
-  const handlePreview = (path: string) => {
-    selectFile(path);
-    setHasPreview(true);
-  };
+  // Close the context menu on any outside interaction or Escape — same
+  // pattern as the terminal's copy-selection context menu.
+  useEffect(() => {
+    if (!contextMenu) return;
 
-  const handleOpen = (path: string) => {
-    handlePreview(path);
-    setShowEditor(true);
-  };
+    const closeUnlessInsideMenu = (e: MouseEvent) => {
+      if (contextMenuRef.current?.contains(e.target as Node)) return;
+      setContextMenu(null);
+    };
+    const close = () => setContextMenu(null);
+    const closeOnEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setContextMenu(null);
+    };
 
-  const handleBack = () => setShowEditor(false);
-
-  const handleDeselect = () => setHasPreview(false);
+    window.addEventListener('mousedown', closeUnlessInsideMenu);
+    window.addEventListener('resize', close);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      window.removeEventListener('mousedown', closeUnlessInsideMenu);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [contextMenu]);
 
   const handlePickDirectory = async () => {
     const dir = await pickScriptDirectory();
@@ -258,159 +269,163 @@ export default function Scripts({ scripts }: ScriptsProps) {
       ? 'Cargando archivos…'
       : filesError
         ? filesError
-        : `${files.length} archivo(s) en el directorio`;
+        : `${files.length} archivo(s)`;
 
   return (
-    <div className={`dashboard__content-inner dm-section scripts-section${showEditor ? ' scripts-section--detail' : ''}`}>
-      <div className="dm-section-bar">
-        <div>
-          <div className="dm-section-title">Scripts</div>
-          <div className="dm-section-desc">{subtitle}</div>
-        </div>
-        <div className="dm-input-row scripts-dir-field">
-          <input
-            className="dm-input dm-input--readonly"
-            value={directoryPath}
-            readOnly
-            placeholder="Ningún directorio seleccionado"
-            spellCheck={false}
-          />
-          <button type="button" className="dm-btn" onClick={handlePickDirectory}>
-            <FolderOpen size={15} strokeWidth={1.5} aria-hidden="true" />
-            Elegir carpeta
-          </button>
-        </div>
-      </div>
-
+    <div className="dashboard__content-inner dm-section scripts-section">
       <div className="scripts-wrap">
-        <div className={`scripts-list${hasPreview ? '' : ' scripts-list--no-preview'}`} onClick={handleDeselect}>
-          <button type="button" className="dm-btn scripts-list__new" onClick={(e) => { e.stopPropagation(); startCreate(); }} disabled={!directoryPath}>
-            <Plus size={15} strokeWidth={1.5} aria-hidden="true" />
-            Nuevo script
-          </button>
-          <div className="scripts-list__inner">
-            {creating && (
-              <NewFileCard
-                error={createError}
-                onConfirm={(name) => void confirmCreate(name)}
-                onCancel={cancelCreate}
-              />
-            )}
-            {files.map((script) => (
-              <ScriptListItem
-                key={script.path}
-                script={script}
-                active={script.path === selected?.path}
-                onPreview={() => handlePreview(script.path)}
-                onOpen={() => handleOpen(script.path)}
-              />
-            ))}
+        <div className="scripts-left">
+          <div className="scripts-left__head">
+            <div className="dm-section-title">Scripts</div>
+            <div className="dm-section-desc">{subtitle}</div>
+          </div>
+
+          <div className="scripts-list">
+            <button type="button" className="dm-btn scripts-list__new" onClick={() => startCreate()} disabled={!directoryPath}>
+              <Plus size={15} strokeWidth={1.5} aria-hidden="true" />
+              Nuevo script
+            </button>
+            <div className="scripts-list__inner">
+              {creating && (
+                <NewFileCard
+                  error={createError}
+                  onConfirm={(name) => void confirmCreate(name)}
+                  onCancel={cancelCreate}
+                />
+              )}
+              {files.map((script) => (
+                <ScriptListItem
+                  key={script.path}
+                  script={script}
+                  active={script.path === selected?.path}
+                  onSelect={() => selectFile(script.path)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setContextMenu({ x: e.clientX, y: e.clientY, path: script.path });
+                  }}
+                />
+              ))}
+            </div>
           </div>
         </div>
 
-        <div className={`scripts-preview${hasPreview ? '' : ' scripts-preview--empty'}`}>
-          {hasPreview && selected ? (
-            <>
-              <div className="scripts-preview__header">
-                <FileCode size={14} strokeWidth={1.5} className="scripts-editor__tab-icon" aria-hidden="true" />
-                {selected.name}
-              </div>
-              <div className="scripts-preview__body">
-                <CodeBlock lines={statusLines ?? content.split('\n')} />
-              </div>
-              <div className="scripts-preview__hint">Doble click para abrir</div>
-            </>
-          ) : (
-            <div className="scripts-preview__empty">
-              <div className="scripts-preview__empty-icon">
-                <MousePointerSquareDashed size={20} strokeWidth={1.5} aria-hidden="true" />
-              </div>
-              <p className="scripts-preview__empty-title">Explora tus scripts</p>
-              <p className="scripts-preview__empty-sub">Esto es lo que puedes hacer con tus archivos:</p>
-              <ul className="scripts-preview__guide">
-                <li className="scripts-preview__guide-item scripts-preview__guide-item--create">
-                  <span className="scripts-preview__guide-icon">
-                    <FilePlus2 size={14} strokeWidth={1.5} aria-hidden="true" />
-                  </span>
-                  <span className="scripts-preview__guide-text">
-                    <strong>Crear</strong>
-                    <span>Define el nombre y formato de tu nuevo script.</span>
-                  </span>
-                </li>
-                <li className="scripts-preview__guide-item scripts-preview__guide-item--preview">
-                  <span className="scripts-preview__guide-icon">
-                    <MousePointerClick size={14} strokeWidth={1.5} aria-hidden="true" />
-                  </span>
-                  <span className="scripts-preview__guide-text">
-                    <strong>Previsualizar</strong>
-                    <span>Un click selecciona el archivo y muestra su contenido aquí.</span>
-                  </span>
-                </li>
-                <li className="scripts-preview__guide-item scripts-preview__guide-item--open">
-                  <span className="scripts-preview__guide-icon">
-                    <MousePointer2 size={14} strokeWidth={1.5} aria-hidden="true" />
-                  </span>
-                  <span className="scripts-preview__guide-text">
-                    <strong>Editar y ejecutar</strong>
-                    <span>Doble click abre el editor completo del script.</span>
-                  </span>
-                </li>
-                <li className="scripts-preview__guide-item scripts-preview__guide-item--delete">
-                  <span className="scripts-preview__guide-icon">
-                    <MouseRight size={14} strokeWidth={1.5} aria-hidden="true" />
-                  </span>
-                  <span className="scripts-preview__guide-text">
-                    <strong>Eliminar</strong>
-                    <span>Click derecho sobre un script y selecciona "Eliminar".</span>
-                  </span>
-                </li>
-              </ul>
-            </div>
-          )}
-        </div>
-
-        <div className="scripts-editor">
-          <div className="scripts-editor__tabs">
-            <div className="scripts-editor__tabs-left">
-              <button type="button" className="scripts-editor__back" onClick={handleBack}>
-                <ArrowLeft size={14} strokeWidth={1.5} aria-hidden="true" />
-                Volver
-              </button>
-              <div className="scripts-editor__tab scripts-editor__tab--active">
-                <FileCode size={14} strokeWidth={1.5} className="scripts-editor__tab-icon" aria-hidden="true" />
-                {selected?.name}
-              </div>
-            </div>
-            <div className="scripts-toolbar">
-              <EditorToolbarButton
-                icon={RefreshCw}
-                label={autosave ? 'Autoguardado activado' : 'Activar autoguardado'}
-                active={autosave}
-                pressed={autosave}
-                onClick={() => setAutosave(!autosave)}
-              />
-              <EditorToolbarButton
-                icon={Save}
-                label="Guardar"
-                onClick={() => void save()}
-                disabled={!selected || !dirty}
-              />
-              <EditorToolbarButton
-                icon={Zap}
-                label="Ejecutar script (próximamente)"
-                disabled
-              />
-            </div>
+        <div className="scripts-right">
+          <div className="dm-input-row scripts-dir-field">
+            <input
+              className="dm-input dm-input--readonly"
+              value={directoryPath}
+              readOnly
+              placeholder="Ningún directorio seleccionado"
+              spellCheck={false}
+            />
+            <button type="button" className="dm-btn" onClick={handlePickDirectory}>
+              <FolderOpen size={15} strokeWidth={1.5} aria-hidden="true" />
+            </button>
           </div>
-          <div className="scripts-editor__body">
-            {statusLines ? (
-              <CodeBlock lines={statusLines} />
-            ) : (
-              <CodeEditor value={content} onChange={setContent} />
-            )}
+
+          <div className="scripts-editor">
+            <div className="scripts-editor__tabs">
+              <div className="scripts-editor__tabs-left">
+                <div className="scripts-editor__tab scripts-editor__tab--active">
+                  <FileCode size={14} strokeWidth={1.5} className="scripts-editor__tab-icon" aria-hidden="true" />
+                  {selected ? selected.name : 'None'}
+                </div>
+              </div>
+              <div className="scripts-toolbar">
+                <EditorToolbarButton
+                  icon={RefreshCw}
+                  label={autosave ? 'Autoguardado activado' : 'Activar autoguardado'}
+                  active={autosave}
+                  pressed={autosave}
+                  onClick={() => setAutosave(!autosave)}
+                />
+                <EditorToolbarButton
+                  icon={Save}
+                  label="Guardar"
+                  onClick={() => void save()}
+                  disabled={!selected || !dirty}
+                />
+                <EditorToolbarButton
+                  icon={Trash2}
+                  label="Eliminar archivo"
+                  onClick={() => selected && void deleteFile(selected.path)}
+                  disabled={!selected}
+                  danger
+                />
+                <EditorToolbarButton
+                  icon={Zap}
+                  label="Ejecutar script (próximamente)"
+                  disabled
+                />
+              </div>
+            </div>
+            <div className="scripts-editor__body">
+              {!selected ? (
+                <div className="scripts-editor__empty">
+                  <div className="scripts-editor__empty-icon">
+                    <MousePointerSquareDashed size={20} strokeWidth={1.5} aria-hidden="true" />
+                  </div>
+                  <p className="scripts-editor__empty-title">Explora tus scripts</p>
+                  <p className="scripts-editor__empty-sub">Esto es lo que puedes hacer con tus archivos:</p>
+                  <ul className="scripts-editor__guide">
+                    <li className="scripts-editor__guide-item scripts-editor__guide-item--create">
+                      <span className="scripts-editor__guide-icon">
+                        <FilePlus2 size={14} strokeWidth={1.5} aria-hidden="true" />
+                      </span>
+                      <span className="scripts-editor__guide-text">
+                        <strong>Crear</strong>
+                        <span>Define el nombre y formato de tu nuevo script.</span>
+                      </span>
+                    </li>
+                    <li className="scripts-editor__guide-item scripts-editor__guide-item--open">
+                      <span className="scripts-editor__guide-icon">
+                        <MousePointer2 size={14} strokeWidth={1.5} aria-hidden="true" />
+                      </span>
+                      <span className="scripts-editor__guide-text">
+                        <strong>Abrir y editar</strong>
+                        <span>Un click sobre un script lo abre en el editor.</span>
+                      </span>
+                    </li>
+                    <li className="scripts-editor__guide-item scripts-editor__guide-item--delete">
+                      <span className="scripts-editor__guide-icon">
+                        <MouseRight size={14} strokeWidth={1.5} aria-hidden="true" />
+                      </span>
+                      <span className="scripts-editor__guide-text">
+                        <strong>Eliminar</strong>
+                        <span>Click derecho sobre un script y selecciona "Eliminar".</span>
+                      </span>
+                    </li>
+                  </ul>
+                </div>
+              ) : statusLines ? (
+                <CodeBlock lines={statusLines} />
+              ) : (
+                <CodeEditor value={content} onChange={setContent} />
+              )}
+            </div>
           </div>
         </div>
       </div>
+
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="scripts-context-menu"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+        >
+          <button
+            type="button"
+            className="scripts-context-menu-item scripts-context-menu-item--danger"
+            onClick={() => {
+              void deleteFile(contextMenu.path);
+              setContextMenu(null);
+            }}
+          >
+            <Trash2 size={13} strokeWidth={1.5} aria-hidden="true" />
+            Eliminar
+          </button>
+        </div>
+      )}
     </div>
   );
 }

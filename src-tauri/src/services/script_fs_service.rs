@@ -99,3 +99,15 @@ pub async fn create_file(dir: &str, file_name: &str) -> Result<ScriptFileEntry, 
         path: path.to_string_lossy().into_owned(),
     })
 }
+
+/// Permanently deletes a file. No trash/recycle bin — the caller (UI) owns
+/// any confirmation step.
+pub async fn delete_file(path: &str) -> Result<(), AppError> {
+    fs::remove_file(path).await.map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            AppError::FileNotFound(path.to_string())
+        } else {
+            AppError::FileDeleteFailed(e.to_string())
+        }
+    })
+}

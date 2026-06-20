@@ -67,6 +67,9 @@ pub enum AppError {
 
     #[error("Invalid file name: {0}")]
     InvalidFileName(String),
+
+    #[error("Failed to delete file: {0}")]
+    FileDeleteFailed(String),
 }
 
 impl Serialize for AppError {
@@ -96,6 +99,7 @@ impl Serialize for AppError {
             AppError::FileWriteFailed(msg) => ("FILE_WRITE_FAILED", msg.clone()),
             AppError::FileAlreadyExists(name) => ("FILE_ALREADY_EXISTS", name.clone()),
             AppError::InvalidFileName(msg) => ("INVALID_FILE_NAME", msg.clone()),
+            AppError::FileDeleteFailed(msg) => ("FILE_DELETE_FAILED", msg.clone()),
         };
         let mut state = serializer.serialize_struct("AppError", 2)?;
         state.serialize_field("code", code)?;

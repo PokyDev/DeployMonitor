@@ -23,3 +23,8 @@ pub async fn script_fs_create(
 ) -> Result<ScriptFileEntry, AppError> {
     script_fs_service::create_file(&dir_path, &file_name).await
 }
+
+#[tauri::command]
+pub async fn script_fs_delete(path: String) -> Result<(), AppError> {
+    script_fs_service::delete_file(&path).await
+}

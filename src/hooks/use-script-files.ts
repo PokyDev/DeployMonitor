@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { LazyStore } from '@tauri-apps/plugin-store';
 import {
   scriptFsCreate,
+  scriptFsDelete,
   scriptFsList,
   scriptFsRead,
   scriptFsWrite,
@@ -186,6 +187,27 @@ export function useScriptFiles() {
     [directoryPath, refreshFiles, cancelCreate],
   );
 
+  // No confirmation step — the caller (UI) owns that decision. Failures
+  // (e.g. permissions, already gone) are logged rather than thrown further,
+  // since there's no dedicated error UI for this action.
+  const deleteFile = useCallback(
+    async (path: string) => {
+      try {
+        await scriptFsDelete(path);
+      } catch (err) {
+        console.error('No se pudo eliminar el archivo:', errorMessage(err));
+        return;
+      }
+      if (selected?.path === path) {
+        setSelected(null);
+        setContentState('');
+        setDirty(false);
+      }
+      await refreshFiles(directoryPath);
+    },
+    [selected, directoryPath, refreshFiles],
+  );
+
   return {
     directoryPath,
     setDirectoryPath,
@@ -207,5 +229,6 @@ export function useScriptFiles() {
     startCreate,
     confirmCreate,
     cancelCreate,
+    deleteFile,
   };
 }

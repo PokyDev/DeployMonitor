@@ -104,3 +104,8 @@ export async function scriptFsWrite(path: string, content: string): Promise<void
 export async function scriptFsCreate(dirPath: string, fileName: string): Promise<ScriptFileEntry> {
   return await invoke<ScriptFileEntry>('script_fs_create', { dirPath, fileName });
 }
+
+/** Permanently deletes a file — no trash/confirmation. Throws { code, message } on failure. */
+export async function scriptFsDelete(path: string): Promise<void> {
+  await invoke('script_fs_delete', { path });
+}
