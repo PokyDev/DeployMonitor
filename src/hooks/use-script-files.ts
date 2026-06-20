@@ -66,6 +66,8 @@ export function useScriptFiles() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
+  const [pendingDeletePath, setPendingDeletePath] = useState<string | null>(null);
+
   // Restore the persisted directory once on mount.
   useEffect(() => {
     let active = true;
@@ -131,6 +133,12 @@ export function useScriptFiles() {
     [files, loadContent],
   );
 
+  const deselectFile = useCallback(() => {
+    setSelected(null);
+    setContentState('');
+    setDirty(false);
+  }, []);
+
   const setContent = useCallback((value: string) => {
     setContentState(value);
     setDirty(true);
@@ -187,11 +195,13 @@ export function useScriptFiles() {
     [directoryPath, refreshFiles, cancelCreate],
   );
 
-  // No confirmation step — the caller (UI) owns that decision. Failures
-  // (e.g. permissions, already gone) are logged rather than thrown further,
-  // since there's no dedicated error UI for this action.
+  // Confirmation is owned by the UI (DeleteConfirmCard) — this only runs the
+  // actual deletion once the user has confirmed. Failures (e.g. permissions,
+  // already gone) are logged rather than thrown further, since there's no
+  // dedicated error UI for this action.
   const deleteFile = useCallback(
     async (path: string) => {
+      setPendingDeletePath((current) => (current === path ? null : current));
       try {
         await scriptFsDelete(path);
       } catch (err) {
@@ -208,6 +218,15 @@ export function useScriptFiles() {
     [selected, directoryPath, refreshFiles],
   );
 
+  // Only one pending confirmation at a time — requesting another replaces it.
+  const requestDelete = useCallback((path: string) => {
+    setPendingDeletePath(path);
+  }, []);
+
+  const cancelPendingDelete = useCallback(() => {
+    setPendingDeletePath(null);
+  }, []);
+
   return {
     directoryPath,
     setDirectoryPath,
@@ -216,6 +235,7 @@ export function useScriptFiles() {
     filesError,
     selected,
     selectFile,
+    deselectFile,
     content,
     contentLoading,
     contentError,
@@ -230,5 +250,8 @@ export function useScriptFiles() {
     confirmCreate,
     cancelCreate,
     deleteFile,
+    pendingDeletePath,
+    requestDelete,
+    cancelPendingDelete,
   };
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
@@ -10,6 +10,8 @@ import {
   Zap,
   RefreshCw,
   Trash2,
+  Check,
+  X,
   MousePointerSquareDashed,
   MousePointer2,
   MouseRight,
@@ -99,13 +101,14 @@ function CodeEditor({ value, onChange }: { value: string; onChange: (value: stri
   );
 }
 
-function ScriptListItem({ script, active, onSelect, onContextMenu }: { script: ScriptFileEntry; active: boolean; onSelect: () => void; onContextMenu: (e: React.MouseEvent) => void }) {
+function ScriptListItem({ script, active, onSelect, onContextMenu, itemRef }: { script: ScriptFileEntry; active: boolean; onSelect: () => void; onContextMenu: (e: React.MouseEvent) => void; itemRef?: React.Ref<HTMLDivElement> }) {
   return (
     <div
+      ref={itemRef}
       role="button"
       tabIndex={0}
       className={`scripts-item${active ? ' scripts-item--active' : ''}`}
-      onClick={onSelect}
+      onClick={(e) => { e.stopPropagation(); onSelect(); }}
       onContextMenu={onContextMenu}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect(); }}
     >
@@ -114,6 +117,88 @@ function ScriptListItem({ script, active, onSelect, onContextMenu }: { script: S
         <span className="scripts-item__name">{script.name}</span>
       </div>
       <div className="scripts-item__path">{script.path}</div>
+    </div>
+  );
+}
+
+/** Inline confirmation rendered as the next sibling of the targeted file's
+ * card inside `.scripts-list__inner` — its own box growing/shrinking (via the
+ * `grid-template-rows` 0fr→1fr trick) is what pushes the items below it,
+ * no measurement or animation of the parent list required. Mount/unmount is
+ * gated by the *closing* CSS transition (`onTransitionEnd`), not by the
+ * click handlers, so Cancel and the 10s auto-dismiss always animate out
+ * before the card actually leaves the DOM. Confirm skips that — the whole
+ * row (item + card) leaves together once the list refreshes, so animating
+ * the card's own collapse first would just leave it orphaned for a beat. */
+function DeleteConfirmCard({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [settled, setSettled] = useState(false);
+  const settledRef = useRef(false);
+
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setOpen(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  // Guards against a click and the 10s auto-dismiss firing back to back —
+  // only the first one should actually run.
+  const settle = (action: () => void) => {
+    if (settledRef.current) return;
+    settledRef.current = true;
+    setSettled(true);
+    action();
+  };
+
+  const close = () => settle(() => setOpen(false));
+  const handleConfirm = () => settle(onConfirm);
+
+  useEffect(() => {
+    const escape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close();
+    };
+    window.addEventListener('keydown', escape);
+    return () => window.removeEventListener('keydown', escape);
+  }, []);
+
+  return (
+    <div
+      className={`scripts-delete-confirm${open ? ' scripts-delete-confirm--open' : ''}`}
+      onTransitionEnd={(e) => {
+        if (e.propertyName === 'grid-template-rows' && !open) onCancel();
+      }}
+    >
+      <div className="scripts-delete-confirm__inner">
+        <span className="scripts-delete-confirm__text scripts-delete-confirm__text--full">¿Deseas eliminar este archivo?</span>
+        <span className="scripts-delete-confirm__text scripts-delete-confirm__text--short">¿Deseas eliminarlo?</span>
+        <div className="scripts-delete-confirm__actions">
+          <button
+            type="button"
+            className="dm-btn dm-btn--danger dm-btn--sm scripts-delete-confirm__btn"
+            onClick={handleConfirm}
+            disabled={settled}
+            aria-label="Confirmar eliminación"
+          >
+            <Check size={14} strokeWidth={1.5} className="scripts-delete-confirm__btn-icon" aria-hidden="true" />
+            <span className="scripts-delete-confirm__btn-label">Confirmar</span>
+          </button>
+          <button
+            type="button"
+            className="dm-btn dm-btn--ghost dm-btn--sm scripts-delete-confirm__btn"
+            onClick={close}
+            disabled={settled}
+            aria-label="Cancelar eliminación"
+          >
+            <X size={14} strokeWidth={1.5} className="scripts-delete-confirm__btn-icon" aria-hidden="true" />
+            <span className="scripts-delete-confirm__btn-label">Cancelar</span>
+          </button>
+        </div>
+        <div className="scripts-delete-confirm__progress">
+          <div
+            className="scripts-delete-confirm__progress-fill"
+            onAnimationEnd={close}
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -201,6 +286,50 @@ function contentStatusLines(loading: boolean, error: string | null): string[] | 
   return null;
 }
 
+/** Standalone empty state shown in `.scripts-right` when no file is selected
+ * — mutually exclusive with `.scripts-editor`, never nested inside it, so
+ * the editor's tab/toolbar header never shows without an open file. */
+function ScriptsEmptyState() {
+  return (
+    <div className="scripts-empty-state">
+      <div className="scripts-empty-state__icon">
+        <MousePointerSquareDashed size={20} strokeWidth={1.5} aria-hidden="true" />
+      </div>
+      <p className="scripts-empty-state__title">Explora tus scripts</p>
+      <p className="scripts-empty-state__sub">Esto es lo que puedes hacer con tus archivos:</p>
+      <ul className="scripts-empty-state__guide">
+        <li className="scripts-empty-state__guide-item scripts-empty-state__guide-item--create">
+          <span className="scripts-empty-state__guide-icon">
+            <FilePlus2 size={14} strokeWidth={1.5} aria-hidden="true" />
+          </span>
+          <span className="scripts-empty-state__guide-text">
+            <strong>Crear</strong>
+            <span>Define el nombre y formato de tu nuevo script.</span>
+          </span>
+        </li>
+        <li className="scripts-empty-state__guide-item scripts-empty-state__guide-item--open">
+          <span className="scripts-empty-state__guide-icon">
+            <MousePointer2 size={14} strokeWidth={1.5} aria-hidden="true" />
+          </span>
+          <span className="scripts-empty-state__guide-text">
+            <strong>Abrir y editar</strong>
+            <span>Un click sobre un script lo abre en el editor.</span>
+          </span>
+        </li>
+        <li className="scripts-empty-state__guide-item scripts-empty-state__guide-item--delete">
+          <span className="scripts-empty-state__guide-icon">
+            <MouseRight size={14} strokeWidth={1.5} aria-hidden="true" />
+          </span>
+          <span className="scripts-empty-state__guide-text">
+            <strong>Eliminar</strong>
+            <span>Click derecho sobre un script y selecciona "Eliminar".</span>
+          </span>
+        </li>
+      </ul>
+    </div>
+  );
+}
+
 type ScriptsProps = {
   scripts: Scripts;
 };
@@ -214,6 +343,7 @@ export default function Scripts({ scripts }: ScriptsProps) {
     filesError,
     selected,
     selectFile,
+    deselectFile,
     content,
     contentLoading,
     contentError,
@@ -228,10 +358,22 @@ export default function Scripts({ scripts }: ScriptsProps) {
     confirmCreate,
     cancelCreate,
     deleteFile,
+    pendingDeletePath,
+    requestDelete,
+    cancelPendingDelete,
   } = scripts;
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef(new Map<string, HTMLDivElement>());
+
+  // The toolbar trash icon targets the open file, which may be scrolled out
+  // of view in a long list — bring it on screen so the confirmation card it
+  // triggers is actually visible.
+  const requestDeleteFromToolbar = (path: string) => {
+    requestDelete(path);
+    itemRefs.current.get(path)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
 
   // Close the context menu on any outside interaction or Escape — same
   // pattern as the terminal's copy-selection context menu.
@@ -274,7 +416,7 @@ export default function Scripts({ scripts }: ScriptsProps) {
   return (
     <div className="dashboard__content-inner dm-section scripts-section">
       <div className="scripts-wrap">
-        <div className="scripts-left">
+        <div className="scripts-left" onClick={() => selected && deselectFile()}>
           <div className="scripts-left__head">
             <div className="dm-section-title">Scripts</div>
             <div className="dm-section-desc">{subtitle}</div>
@@ -294,16 +436,27 @@ export default function Scripts({ scripts }: ScriptsProps) {
                 />
               )}
               {files.map((script) => (
-                <ScriptListItem
-                  key={script.path}
-                  script={script}
-                  active={script.path === selected?.path}
-                  onSelect={() => selectFile(script.path)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setContextMenu({ x: e.clientX, y: e.clientY, path: script.path });
-                  }}
-                />
+                <Fragment key={script.path}>
+                  <ScriptListItem
+                    script={script}
+                    active={script.path === selected?.path}
+                    onSelect={() => selectFile(script.path)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setContextMenu({ x: e.clientX, y: e.clientY, path: script.path });
+                    }}
+                    itemRef={(el) => {
+                      if (el) itemRefs.current.set(script.path, el);
+                      else itemRefs.current.delete(script.path);
+                    }}
+                  />
+                  {pendingDeletePath === script.path && (
+                    <DeleteConfirmCard
+                      onConfirm={() => void deleteFile(script.path)}
+                      onCancel={cancelPendingDelete}
+                    />
+                  )}
+                </Fragment>
               ))}
             </div>
           </div>
@@ -323,87 +476,53 @@ export default function Scripts({ scripts }: ScriptsProps) {
             </button>
           </div>
 
-          <div className="scripts-editor">
-            <div className="scripts-editor__tabs">
-              <div className="scripts-editor__tabs-left">
-                <div className="scripts-editor__tab scripts-editor__tab--active">
-                  <FileCode size={14} strokeWidth={1.5} className="scripts-editor__tab-icon" aria-hidden="true" />
-                  {selected ? selected.name : 'None'}
-                </div>
-              </div>
-              <div className="scripts-toolbar">
-                <EditorToolbarButton
-                  icon={RefreshCw}
-                  label={autosave ? 'Autoguardado activado' : 'Activar autoguardado'}
-                  active={autosave}
-                  pressed={autosave}
-                  onClick={() => setAutosave(!autosave)}
-                />
-                <EditorToolbarButton
-                  icon={Save}
-                  label="Guardar"
-                  onClick={() => void save()}
-                  disabled={!selected || !dirty}
-                />
-                <EditorToolbarButton
-                  icon={Trash2}
-                  label="Eliminar archivo"
-                  onClick={() => selected && void deleteFile(selected.path)}
-                  disabled={!selected}
-                  danger
-                />
-                <EditorToolbarButton
-                  icon={Zap}
-                  label="Ejecutar script (próximamente)"
-                  disabled
-                />
-              </div>
-            </div>
-            <div className="scripts-editor__body">
-              {!selected ? (
-                <div className="scripts-editor__empty">
-                  <div className="scripts-editor__empty-icon">
-                    <MousePointerSquareDashed size={20} strokeWidth={1.5} aria-hidden="true" />
+          {!selected ? (
+            <ScriptsEmptyState />
+          ) : (
+            <div className="scripts-editor">
+              <div className="scripts-editor__tabs">
+                <div className="scripts-editor__tabs-left">
+                  <div className="scripts-editor__tab scripts-editor__tab--active">
+                    <FileCode size={14} strokeWidth={1.5} className="scripts-editor__tab-icon" aria-hidden="true" />
+                    {selected.name}
                   </div>
-                  <p className="scripts-editor__empty-title">Explora tus scripts</p>
-                  <p className="scripts-editor__empty-sub">Esto es lo que puedes hacer con tus archivos:</p>
-                  <ul className="scripts-editor__guide">
-                    <li className="scripts-editor__guide-item scripts-editor__guide-item--create">
-                      <span className="scripts-editor__guide-icon">
-                        <FilePlus2 size={14} strokeWidth={1.5} aria-hidden="true" />
-                      </span>
-                      <span className="scripts-editor__guide-text">
-                        <strong>Crear</strong>
-                        <span>Define el nombre y formato de tu nuevo script.</span>
-                      </span>
-                    </li>
-                    <li className="scripts-editor__guide-item scripts-editor__guide-item--open">
-                      <span className="scripts-editor__guide-icon">
-                        <MousePointer2 size={14} strokeWidth={1.5} aria-hidden="true" />
-                      </span>
-                      <span className="scripts-editor__guide-text">
-                        <strong>Abrir y editar</strong>
-                        <span>Un click sobre un script lo abre en el editor.</span>
-                      </span>
-                    </li>
-                    <li className="scripts-editor__guide-item scripts-editor__guide-item--delete">
-                      <span className="scripts-editor__guide-icon">
-                        <MouseRight size={14} strokeWidth={1.5} aria-hidden="true" />
-                      </span>
-                      <span className="scripts-editor__guide-text">
-                        <strong>Eliminar</strong>
-                        <span>Click derecho sobre un script y selecciona "Eliminar".</span>
-                      </span>
-                    </li>
-                  </ul>
                 </div>
-              ) : statusLines ? (
-                <CodeBlock lines={statusLines} />
-              ) : (
-                <CodeEditor value={content} onChange={setContent} />
-              )}
+                <div className="scripts-toolbar">
+                  <EditorToolbarButton
+                    icon={RefreshCw}
+                    label={autosave ? 'Autoguardado activado' : 'Activar autoguardado'}
+                    active={autosave}
+                    pressed={autosave}
+                    onClick={() => setAutosave(!autosave)}
+                  />
+                  <EditorToolbarButton
+                    icon={Save}
+                    label="Guardar"
+                    onClick={() => void save()}
+                    disabled={!dirty}
+                  />
+                  <EditorToolbarButton
+                    icon={Trash2}
+                    label="Eliminar archivo"
+                    onClick={() => requestDeleteFromToolbar(selected.path)}
+                    danger
+                  />
+                  <EditorToolbarButton
+                    icon={Zap}
+                    label="Ejecutar script (próximamente)"
+                    disabled
+                  />
+                </div>
+              </div>
+              <div className="scripts-editor__body">
+                {statusLines ? (
+                  <CodeBlock lines={statusLines} />
+                ) : (
+                  <CodeEditor value={content} onChange={setContent} />
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
 
@@ -417,7 +536,7 @@ export default function Scripts({ scripts }: ScriptsProps) {
             type="button"
             className="scripts-context-menu-item scripts-context-menu-item--danger"
             onClick={() => {
-              void deleteFile(contextMenu.path);
+              requestDelete(contextMenu.path);
               setContextMenu(null);
             }}
           >

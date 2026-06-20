@@ -73,6 +73,15 @@
   --text-muted:     #A0A0A0;
   --text-code:      #8B6914;
 
+  /* Editor de Scripts (superficie IDE de la sección Scripts) */
+  --editor-bg:               #FFFFFF;
+  --editor-header-bg:        #F0EFE9;
+  --editor-header-border:    #E8E6DF;
+  --editor-toolbar-hover-bg: rgba(17, 17, 17, 0.06);
+  --editor-gutter-text:      #B8B3A0;
+  --editor-code-text:        #1A1A1A;
+  --editor-tok-str:          var(--color-success);
+
   /* Sombras */
   --shadow-sm:   0 1px 4px rgba(0, 0, 0, 0.06);
   --shadow-md:   0 4px 12px rgba(0, 0, 0, 0.08);
@@ -95,6 +104,15 @@
   --text-muted:     #555555;
   --text-code:      #D4AF37;
 
+  /* Editor de Scripts — valores actuales preservados (antes hardcodeados) */
+  --editor-bg:               #0D0D0D;
+  --editor-header-bg:        #161616;
+  --editor-header-border:    #222222;
+  --editor-toolbar-hover-bg: rgba(255, 255, 255, 0.08);
+  --editor-gutter-text:      #4A4A4A;
+  --editor-code-text:        #E6E6E6;
+  --editor-tok-str:          var(--color-success-light);
+
   --shadow-sm:   0 1px 4px rgba(0, 0, 0, 0.3);
   --shadow-md:   0 4px 12px rgba(0, 0, 0, 0.4);
   --shadow-gold: 0 2px 8px rgba(212, 175, 55, 0.3);
@@ -108,6 +126,12 @@
 
   /* Titlebar — siempre oscuro independiente del tema */
   --titlebar-bg: #1A1A1A;
+
+  /* Tooltip del editor de Scripts — chip oscuro fijo en ambos temas,
+     igual que un tooltip nativo de SO, no una superficie del tema */
+  --editor-tooltip-bg:     #1E1E1E;
+  --editor-tooltip-border: #2A2A2A;
+  --editor-tooltip-text:   #F0F0F0;
 
   /* Estados semánticos */
   --color-success:       #2D7A4F;

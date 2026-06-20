@@ -152,13 +152,93 @@
   color: var(--color-error-light);
 }
 
+/* ── Inline delete confirmation — rendered as the next sibling of the
+   targeted file's card inside .scripts-list__inner. Its own box growing
+   from 0fr to 1fr (and back) is what smoothly pushes the items below it;
+   no JS height measurement or animation of the parent list needed. ── */
+.scripts-delete-confirm {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--duration-slow) var(--ease-out);
+}
+
+.scripts-delete-confirm--open {
+  grid-template-rows: 1fr;
+}
+
+.scripts-delete-confirm__inner {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  border: 1px solid var(--border-default);
+  border-left: 2px solid var(--color-error-light);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity var(--duration-slow) var(--ease-out), transform var(--duration-slow) var(--ease-out);
+}
+
+.scripts-delete-confirm--open .scripts-delete-confirm__inner {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.scripts-delete-confirm__text {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+/* Maximized window: full question. Swapped for the shorter copy below
+   760px, where the list column is too narrow for the long version. */
+.scripts-delete-confirm__text--short {
+  display: none;
+}
+
+.scripts-delete-confirm__actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* Maximized window: icon + label. Below 760px only the icon remains so
+   the two buttons fit the narrowed list column (see media query). */
+.scripts-delete-confirm__btn-icon {
+  display: none;
+}
+
+.scripts-delete-confirm__progress {
+  height: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+.scripts-delete-confirm__progress-fill {
+  height: 100%;
+  width: 100%;
+  background: var(--color-error-light);
+  transform-origin: left;
+  animation: scripts-delete-countdown 10s linear forwards;
+}
+
+/* Paused on hover so the card never disappears under the user's cursor
+   while they're still deciding. */
+.scripts-delete-confirm:hover .scripts-delete-confirm__progress-fill {
+  animation-play-state: paused;
+}
+
 /* ── Editor ── */
 .scripts-editor {
   display: flex;
   flex: 1;
   flex-direction: column;
   min-height: 0;
-  background: #0D0D0D;
+  background: var(--editor-bg);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-xl);
   overflow: hidden;
@@ -168,8 +248,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #161616;
-  border-bottom: 1px solid #222;
+  background: var(--editor-header-bg);
+  border-bottom: 1px solid var(--editor-header-border);
   height: 38px;
   padding: 0 4px;
   flex: 0 0 38px;
@@ -206,8 +286,8 @@
 }
 
 .scripts-toolbar-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #F0F0F0;
+  background: var(--editor-toolbar-hover-bg);
+  color: var(--text-primary);
 }
 
 .scripts-toolbar-btn:focus-visible {
@@ -283,9 +363,9 @@
   top: calc(100% + 6px);
   left: 50%;
   transform: translateX(-50%);
-  background: #1E1E1E;
-  color: #F0F0F0;
-  border: 1px solid #2A2A2A;
+  background: var(--editor-tooltip-bg);
+  color: var(--editor-tooltip-text);
+  border: 1px solid var(--editor-tooltip-border);
   padding: 5px 9px;
   border-radius: var(--radius-md);
   font-family: var(--font-ui);
@@ -311,8 +391,8 @@
 }
 
 .scripts-editor__tab--active {
-  color: #F0F0F0;
-  background: #0D0D0D;
+  color: var(--text-primary);
+  background: var(--editor-bg);
   border-bottom-color: var(--color-gold);
 }
 
@@ -327,15 +407,21 @@
   overflow: auto;
 }
 
-/* ── Editor empty state (no file open) ── */
-.scripts-editor__empty {
+/* ── Empty state (no file selected) — sibling of .scripts-editor, never
+   nested inside it, so the editor's tab/toolbar header never shows
+   without an open file. Fills the same flex slot .scripts-editor would.
+   Base rules below target the maximized window (the right panel can be
+   900px+ wide); @media (max-width: 760px) further down scales everything
+   back to the fixed 700×600 minimized window. ── */
+.scripts-empty-state {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--space-3);
-  padding: var(--space-5) var(--space-4);
+  gap: var(--space-4);
+  padding: var(--space-8) var(--space-6);
   border: 2px dashed var(--border-strong);
   border-radius: var(--radius-xl);
   color: var(--text-muted);
@@ -343,91 +429,109 @@
   overflow-y: auto;
 }
 
-.scripts-editor__empty-icon {
+.scripts-empty-state__icon {
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  width: 42px;
-  height: 42px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   background: var(--bg-overlay);
   color: var(--text-secondary);
 }
 
-.scripts-editor__empty-title {
+.scripts-empty-state__icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.scripts-empty-state__title {
   font-family: var(--font-ui);
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-primary);
   margin: 0;
 }
 
-.scripts-editor__empty-sub {
+.scripts-empty-state__sub {
   font-family: var(--font-ui);
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--text-muted);
   margin: 0;
 }
 
-.scripts-editor__guide {
+/* Wide layout: 3 guide items side by side instead of a narrow stacked
+   column, so the guide actually uses a wide maximized panel. */
+.scripts-empty-state__guide {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-8);
   width: 100%;
-  max-width: 240px;
-  margin: 0;
+  max-width: 620px;
+  margin: var(--space-2) 0 0;
   padding: 0;
   list-style: none;
-  text-align: left;
 }
 
-.scripts-editor__guide-item {
+.scripts-empty-state__guide-item {
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: center;
   gap: var(--space-2);
+  flex: 1 1 160px;
+  max-width: 190px;
+  text-align: center;
 }
 
-.scripts-editor__guide-icon {
+.scripts-empty-state__guide-icon {
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
+  width: 34px;
+  height: 34px;
   border-radius: var(--radius-md);
 }
 
-.scripts-editor__guide-item--create .scripts-editor__guide-icon {
+.scripts-empty-state__guide-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.scripts-empty-state__guide-item--create .scripts-empty-state__guide-icon {
   background: rgba(61, 158, 104, 0.15);
   color: var(--color-success-light);
 }
 
-.scripts-editor__guide-item--open .scripts-editor__guide-icon {
+.scripts-empty-state__guide-item--open .scripts-empty-state__guide-icon {
   background: rgba(212, 175, 55, 0.16);
   color: var(--color-gold);
 }
 
-.scripts-editor__guide-item--delete .scripts-editor__guide-icon {
+.scripts-empty-state__guide-item--delete .scripts-empty-state__guide-icon {
   background: rgba(196, 57, 77, 0.12);
   color: var(--color-error-light);
 }
 
-.scripts-editor__guide-text {
+.scripts-empty-state__guide-text {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  align-items: center;
+  gap: 2px;
 }
 
-.scripts-editor__guide-text strong {
+.scripts-empty-state__guide-text strong {
   font-family: var(--font-ui);
-  font-size: 11.5px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--text-primary);
 }
 
-.scripts-editor__guide-text span {
+.scripts-empty-state__guide-text span {
   font-family: var(--font-ui);
-  font-size: 10.5px;
-  line-height: 1.4;
+  font-size: 11.5px;
+  line-height: 1.45;
   color: var(--text-muted);
 }
 
@@ -438,7 +542,7 @@
   font-family: var(--font-code);
   font-size: 12.5px;
   line-height: 1.6;
-  color: #4A4A4A;
+  color: var(--editor-gutter-text);
   user-select: none;
 }
 
@@ -449,7 +553,7 @@
   font-family: var(--font-code);
   font-size: 12.5px;
   line-height: 1.6;
-  color: #E6E6E6;
+  color: var(--editor-code-text);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   tab-size: 2;
@@ -459,10 +563,10 @@
   min-height: 1em;
 }
 
-.scripts-tok--kw  { color: #D4AF37; }
-.scripts-tok--str { color: #3D9E68; }
-.scripts-tok--cmt { color: #555555; font-style: italic; }
-.scripts-tok--var { color: #2874A6; }
+.scripts-tok--kw  { color: var(--text-code); }
+.scripts-tok--str { color: var(--editor-tok-str); }
+.scripts-tok--cmt { color: var(--text-muted); font-style: italic; }
+.scripts-tok--var { color: var(--color-info-light); }
 
 /* ── Editable code surface ("textarea over pre") ──
    .scripts-editbox__view is the highlighted CodeBlock, scrolled
@@ -517,6 +621,11 @@
   to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
+@keyframes scripts-delete-countdown {
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
+}
+
 @media (max-width: 760px) {
   .scripts-wrap {
     display: flex;
@@ -536,11 +645,106 @@
   .scripts-item__path {
     display: none;
   }
+
+  .scripts-delete-confirm__text--full {
+    display: none;
+  }
+
+  .scripts-delete-confirm__text--short {
+    display: inline;
+  }
+
+  .scripts-delete-confirm__btn-label {
+    display: none;
+  }
+
+  .scripts-delete-confirm__btn-icon {
+    display: block;
+  }
+
+  .scripts-delete-confirm__btn {
+    padding: 6px 9px;
+  }
+
+  /* Minimized 700×600 window: the wide-layout empty state (bigger icon,
+     3-up guide row) doesn't fit a ~70%-of-700px panel — scale back to a
+     compact stacked column, slightly larger than the pre-redesign sizes. */
+  .scripts-empty-state {
+    gap: var(--space-3);
+    padding: var(--space-4) var(--space-3);
+  }
+
+  .scripts-empty-state__icon {
+    width: 44px;
+    height: 44px;
+  }
+
+  .scripts-empty-state__icon svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .scripts-empty-state__title {
+    font-size: 13.5px;
+  }
+
+  .scripts-empty-state__sub {
+    font-size: 11.5px;
+  }
+
+  .scripts-empty-state__guide {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: var(--space-3);
+    max-width: 100%;
+    margin-top: 0;
+  }
+
+  .scripts-empty-state__guide-item {
+    flex-direction: row;
+    align-items: flex-start;
+    flex: 0 0 auto;
+    max-width: 100%;
+    text-align: left;
+  }
+
+  .scripts-empty-state__guide-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .scripts-empty-state__guide-icon svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .scripts-empty-state__guide-text {
+    align-items: flex-start;
+    gap: 1px;
+  }
+
+  .scripts-empty-state__guide-text strong {
+    font-size: 12px;
+  }
+
+  .scripts-empty-state__guide-text span {
+    font-size: 11px;
+    line-height: 1.4;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .scripts-run-btn--active,
   .scripts-toolbar-btn__tooltip {
     animation: none;
+  }
+
+  /* Slide/fade/layout-push is purely decorative — drop it. The countdown
+     bar stays animated since it's functional (communicates time left
+     before auto-cancel), not just visual flourish. */
+  .scripts-delete-confirm,
+  .scripts-delete-confirm__inner {
+    transition: none;
   }
 }
