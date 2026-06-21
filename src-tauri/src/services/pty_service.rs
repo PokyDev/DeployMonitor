@@ -18,6 +18,20 @@ fn detect_shell() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string())
 }
 
+/// Invisible two-codepoint marker appended to the local shell's own prompt.
+/// Matches `LOCAL_PROMPT_SENTINEL` in `src/lib/ssh-utils.ts` — its
+/// reappearance in a `pty:data` chunk tells the frontend the local shell
+/// (not an SSH child process) currently owns the terminal, regardless of
+/// why an SSH session ended (typed exit, network drop, idle timeout, ...).
+/// Built from codepoints rather than literal escapes to keep the source
+/// file free of invisible characters.
+fn local_prompt_sentinel() -> String {
+    [0x200Bu32, 0x200Cu32]
+        .into_iter()
+        .filter_map(char::from_u32)
+        .collect()
+}
+
 /// Builds the `-Command` script passed to pwsh/powershell at spawn time so
 /// the gold prompt and bell silencing are in effect *before* PSReadLine's
 /// interactive loop starts — avoids racing stdin injection against ConPTY's
@@ -26,12 +40,14 @@ fn detect_shell() -> String {
 /// the app's gold ITheme entry (see spec-terminal.md § Theming) regardless of
 /// PS version — `-ForegroundColor` emits a console-API color it doesn't map.
 fn build_pwsh_setup() -> String {
-    concat!(
-        "Set-PSReadLineOption -BellStyle None; ",
-        "Clear-Host; ",
-        r#"function prompt { $e = [char]27; Write-Host "$e[33m>$(Get-Location)>$e[0m" -NoNewline; " " }"#,
+    format!(
+        concat!(
+            "Set-PSReadLineOption -BellStyle None; ",
+            "Clear-Host; ",
+            r#"function prompt {{ $e = [char]27; Write-Host "$e[33m>$(Get-Location)>$e[0m" -NoNewline; Write-Host '{}' -NoNewline; " " }}"#,
+        ),
+        local_prompt_sentinel()
     )
-    .to_string()
 }
 
 /// Writes the gold prompt configuration for Unix shells so the terminal
@@ -39,7 +55,10 @@ fn build_pwsh_setup() -> String {
 fn inject_prompt_unix(shell: &str, writer: &mut Box<dyn Write + Send>) -> Result<(), AppError> {
     let lower = shell.to_lowercase();
     if lower.contains("bash") || lower.contains("zsh") || lower.contains("sh") {
-        let setup = r#"bind 'set bell-style none'; PS1='\[\e[33m\]\u@\h:\w\$\[\e[0m\] '"#;
+        let setup = format!(
+            r#"bind 'set bell-style none'; PS1='\[\e[33m\]\u@\h:\w\$\[\e[0m\]\[{}\] '"#,
+            local_prompt_sentinel()
+        );
         writer.write_all(format!("{}\n", setup).as_bytes())?;
     }
     Ok(())

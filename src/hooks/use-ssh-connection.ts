@@ -5,6 +5,8 @@ import {
   parseSshCommand,
   extractPemDir,
   buildSshConnectedBanner,
+  buildSshCommandWithKeepalive,
+  hasKeepaliveFlag,
   SSH_DISCONNECTED_BANNER,
 } from '../lib/ssh-utils';
 import { useTerminalStore } from '../stores/use-terminal-store';
@@ -269,7 +271,14 @@ export function useSshConnection() {
     const pemDir = extractPemDir(pemPath);
     await termStore.write(`cd "${pemDir}"\r`);
     await new Promise<void>((r) => window.setTimeout(r, 200));
-    await termStore.write(`${connectionString}\r`);
+
+    // Add client-side keepalive flags so idle NAT/firewall reaping and
+    // server-side idle timeouts don't silently kill the session — unless
+    // the user already specified their own keepalive option.
+    const sshCommand = hasKeepaliveFlag(connectionString)
+      ? connectionString
+      : buildSshCommandWithKeepalive(parsed);
+    await termStore.write(`${sshCommand}\r`);
   }, [pemPath, connectionString, startSshFlow]);
 
   /** "Desconectar" button handler — sends exit to the active SSH session. */

@@ -23,6 +23,31 @@ export function parseSshCommand(cmd: string): ParsedSshCommand | null {
 }
 
 /**
+ * Client-side SSH keepalive options. Sent periodically over the SSH
+ * protocol itself, so they (a) make the client notice and give up on a
+ * truly dead connection within ~90s instead of hanging silently, and
+ * (b) keep any intermediate NAT/firewall from reaping the TCP connection
+ * for looking idle — which is the actual cause of most "disconnects after
+ * a few inactive minutes" reports, since the remote sshd never sees it.
+ */
+export const SSH_KEEPALIVE_FLAGS = '-o ServerAliveInterval=30 -o ServerAliveCountMax=3';
+
+/** True if a command (typed or stored) already sets its own keepalive option. */
+export function hasKeepaliveFlag(cmd: string): boolean {
+  return /ServerAliveInterval/i.test(cmd);
+}
+
+/**
+ * Rebuilds an `ssh` command with the keepalive flags inserted before the
+ * `user@host` destination — OpenSSH does not accept `-o` options after the
+ * destination argument, it treats trailing tokens as a remote command.
+ */
+export function buildSshCommandWithKeepalive(parsed: ParsedSshCommand): string {
+  const port = parsed.port ? ` -p ${parsed.port}` : '';
+  return `ssh -i "${parsed.pemName}" ${SSH_KEEPALIVE_FLAGS}${port} ${parsed.user}@${parsed.host}`;
+}
+
+/**
  * Extracts the directory portion of a .pem file path,
  * normalising Windows backslashes to forward slashes.
  */
@@ -66,4 +91,20 @@ export function detectSshOutput(data: string): SshOutputSignal {
   )
     return 'failed';
   return null;
+}
+
+/**
+ * Zero-width marker injected into the LOCAL shell's own prompt (see
+ * `pty_service.rs` — `build_pwsh_setup` / `inject_prompt_unix`). Invisible
+ * to the user. Its reappearance in a `pty:data` chunk means the local
+ * shell has regained control of the terminal — which happens whenever the
+ * SSH child process exits, for ANY reason (typed `exit`/`logout`, network
+ * drop, server-side idle timeout, killed session, etc.). This is far more
+ * reliable than matching the SSH client's exit text, which varies by
+ * reason, OpenSSH version, and system locale.
+ */
+export const LOCAL_PROMPT_SENTINEL = String.fromCharCode(0x200b, 0x200c);
+
+export function containsLocalPromptSentinel(data: string): boolean {
+  return data.includes(LOCAL_PROMPT_SENTINEL);
 }

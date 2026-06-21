@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { listen } from '@tauri-apps/api/event';
 import type { Terminal } from '@xterm/xterm';
 import { ptyResize, ptyStart, ptyStop, ptyWrite } from '../lib/tauri-commands';
-import { detectSshOutput } from '../lib/ssh-utils';
+import { detectSshOutput, containsLocalPromptSentinel } from '../lib/ssh-utils';
 import { matchScriptRunEnd, SCRIPT_RUN_CARRY_LENGTH } from '../lib/script-run-utils';
 
 // Module-level — prevents double-registration of the pty:data listener in React StrictMode.
@@ -142,7 +142,15 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
         }
       } else {
         const signal = detectSshOutput(event.payload);
-        if (signal === 'disconnected' || signal === 'failed') {
+        // The sentinel check catches every disconnect reason the regex
+        // above can't name ahead of time (idle timeout, dropped network,
+        // killed remote session, ...): once the SSH child process exits,
+        // the local shell underneath always redraws its own prompt next.
+        if (
+          signal === 'disconnected' ||
+          signal === 'failed' ||
+          containsLocalPromptSentinel(event.payload)
+        ) {
           set({ sshConnected: false });
           get().sshExitCb?.();
         }

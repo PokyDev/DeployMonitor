@@ -13,7 +13,12 @@ import {
   buildUnlockPrompt,
   UNLOCK_COMMAND,
 } from '../../../lib/terminal-welcome';
-import { SSH_CMD_RE } from '../../../lib/ssh-utils';
+import {
+  SSH_CMD_RE,
+  parseSshCommand,
+  buildSshCommandWithKeepalive,
+  hasKeepaliveFlag,
+} from '../../../lib/ssh-utils';
 import { useTerminalStore } from '../../../stores/use-terminal-store';
 import './terminal.css';
 
@@ -211,25 +216,55 @@ export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) 
     //   1. SSH commands typed manually → notifies the connection hook
     //   2. "exit" typed while SSH is active → notifies the connection hook
     let inputBuffer = '';
+    // False once anything arrives that inputBuffer can't account for
+    // (arrow keys, Home/End, tab-completion, paste) — at that point the
+    // shell's actual line may no longer match inputBuffer, so it's not
+    // safe to rewrite it (see the keepalive injection below).
+    let inputBufferTrusted = true;
+
     term.onData((data) => {
       // Detect Enter in all forms xterm.js may send (\r, \n, or \r\n as a single event).
       if (data === '\r' || data === '\n' || data === '\r\n') {
-        if (inputBuffer.length > 0) {
-          const trimmed = inputBuffer.trim();
-          const store = useTerminalStore.getState();
+        const trimmed = inputBuffer.trim();
+        const store = useTerminalStore.getState();
+        let forwardAsTyped = true;
+
+        if (trimmed.length > 0) {
           if (!store.sshConnected && SSH_CMD_RE.test(trimmed)) {
             store.notifySshCommandTyped(trimmed);
+
+            // Auto-inject client-side keepalive flags, same as the
+            // "Conectar" button flow — but only if we're sure inputBuffer
+            // matches what's actually sitting in the shell's input line.
+            if (inputBufferTrusted && !hasKeepaliveFlag(trimmed)) {
+              const parsed = parseSshCommand(trimmed);
+              if (parsed) {
+                const corrected = buildSshCommandWithKeepalive(parsed);
+                const erase = '\x7f'.repeat(inputBuffer.length);
+                void store.write(`${erase}${corrected}\r`);
+                forwardAsTyped = false;
+              }
+            }
           } else if (store.sshConnected && trimmed === 'exit') {
             window.setTimeout(() => useTerminalStore.getState().sshExitCb?.(), 500);
           }
         }
+
         inputBuffer = '';
-      } else if (data === '\x7f') {
+        inputBufferTrusted = true;
+        if (forwardAsTyped) void store.write(data);
+        return;
+      }
+
+      if (data === '\x7f') {
         inputBuffer = inputBuffer.slice(0, -1);
       } else if (data === '\x03') {
         inputBuffer = '';
+        inputBufferTrusted = true;
       } else if (data.length === 1 && data >= ' ') {
         inputBuffer += data;
+      } else {
+        inputBufferTrusted = false;
       }
       void useTerminalStore.getState().write(data);
     });
