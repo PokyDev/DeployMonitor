@@ -232,6 +232,99 @@
   animation-play-state: paused;
 }
 
+/* ── Inline run-result message — same grid-template-rows 0fr→1fr expand
+   mechanic, opacity/translateY fade and progress-bar auto-dismiss as
+   .scripts-delete-confirm above, rendered in the same spot (next sibling of
+   the file that was executed). It only ever reports an outcome, so there
+   are no action buttons: the 5s progress bar (vs. 10s for the delete
+   confirmation, which waits on a decision) is the only way it closes. ── */
+.scripts-run-result {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--duration-slow) var(--ease-out);
+}
+
+.scripts-run-result--open {
+  grid-template-rows: 1fr;
+}
+
+.scripts-run-result__inner {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  border: 1px solid var(--border-default);
+  border-left: 2px solid var(--color-success-light);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity var(--duration-slow) var(--ease-out), transform var(--duration-slow) var(--ease-out);
+}
+
+.scripts-run-result--error .scripts-run-result__inner {
+  border-left-color: var(--color-error-light);
+}
+
+.scripts-run-result--open .scripts-run-result__inner {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.scripts-run-result__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.scripts-run-result__icon {
+  flex: 0 0 auto;
+  color: var(--color-success-light);
+}
+
+.scripts-run-result--error .scripts-run-result__icon {
+  color: var(--color-error-light);
+}
+
+.scripts-run-result__text {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+/* Maximized window: full message. Swapped for the shorter copy below 760px,
+   same rationale as .scripts-delete-confirm__text--short. */
+.scripts-run-result__text--short {
+  display: none;
+}
+
+.scripts-run-result__progress {
+  height: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+.scripts-run-result__progress-fill {
+  height: 100%;
+  width: 100%;
+  background: var(--color-success-light);
+  transform-origin: left;
+  animation: scripts-delete-countdown 5s linear forwards;
+}
+
+.scripts-run-result--error .scripts-run-result__progress-fill {
+  background: var(--color-error-light);
+}
+
+/* Paused on hover, same rationale as the delete confirmation's progress bar. */
+.scripts-run-result:hover .scripts-run-result__progress-fill {
+  animation-play-state: paused;
+}
+
 /* ── Crossfade — see CrossfadeSwap. Shared fade+slide applied to two
    different layout contexts: .scripts-pane (the empty-state ↔ editor slot,
    a column flex filling .scripts-right) and .scripts-editor__body (the
@@ -694,6 +787,14 @@
     padding: 6px 9px;
   }
 
+  .scripts-run-result__text--full {
+    display: none;
+  }
+
+  .scripts-run-result__text--short {
+    display: inline;
+  }
+
   /* Minimized 700×600 window: the wide-layout empty state (bigger icon,
      3-up guide row) doesn't fit a ~70%-of-700px panel — scale back to a
      compact size and drop the description, keeping just icon + title in a
@@ -774,7 +875,9 @@
      bar stays animated since it's functional (communicates time left
      before auto-cancel), not just visual flourish. */
   .scripts-delete-confirm,
-  .scripts-delete-confirm__inner {
+  .scripts-delete-confirm__inner,
+  .scripts-run-result,
+  .scripts-run-result__inner {
     transition: none;
   }
 

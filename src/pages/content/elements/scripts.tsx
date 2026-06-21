@@ -18,9 +18,11 @@ import {
   MouseRight,
 } from 'lucide-react';
 import type { useScriptFiles, ScriptFileEntry } from '../../../hooks/use-script-files';
+import type { useScriptRunner, ScriptRunResult } from '../../../hooks/use-script-runner';
 import './scripts.css';
 
 type Scripts = ReturnType<typeof useScriptFiles>;
+type Runner = ReturnType<typeof useScriptRunner>;
 
 type Token = { text: string; cls?: 'kw' | 'str' | 'cmt' | 'var' };
 
@@ -198,6 +200,72 @@ function DeleteConfirmCard({ onConfirm, onCancel }: { onConfirm: () => void; onC
             className="scripts-delete-confirm__progress-fill"
             onAnimationEnd={close}
           />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type RunResultInfo = { tone: 'success' | 'error'; full: string; short: string };
+
+/** Derives the (full, short) message pair shown for a finished run. */
+function getRunResultInfo(result: ScriptRunResult): RunResultInfo {
+  if (result.status === 'success') {
+    return { tone: 'success', full: 'El script se ejecutó correctamente.', short: 'Ejecución exitosa' };
+  }
+  if (result.error) {
+    return {
+      tone: 'error',
+      full: result.error,
+      short: result.status === 'blocked' ? 'No se pudo ejecutar' : 'Ejecución interrumpida',
+    };
+  }
+  return {
+    tone: 'error',
+    full: `El script finalizó con error (código ${result.exitCode}).`,
+    short: `Error (código ${result.exitCode})`,
+  };
+}
+
+/** Reports the outcome of a run, anchored as the next sibling of the file
+ * that produced it — same `grid-template-rows` 0fr→1fr expand mechanic and
+ * progress-bar auto-dismiss as `DeleteConfirmCard`, just without asking for
+ * input: it only ever reports, and disappears on its own after 5s (vs. 10s
+ * for the delete confirmation, which waits for an explicit decision). */
+function RunResultCard({ info, onDone }: { info: RunResultInfo; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const dismissedRef = useRef(false);
+
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setOpen(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  const dismiss = () => {
+    if (dismissedRef.current) return;
+    dismissedRef.current = true;
+    setOpen(false);
+  };
+
+  return (
+    <div
+      className={`scripts-run-result scripts-run-result--${info.tone}${open ? ' scripts-run-result--open' : ''}`}
+      onTransitionEnd={(e) => {
+        if (e.propertyName === 'grid-template-rows' && !open) onDone();
+      }}
+    >
+      <div className="scripts-run-result__inner">
+        <div className="scripts-run-result__head">
+          {info.tone === 'success' ? (
+            <Check size={14} strokeWidth={1.5} className="scripts-run-result__icon" aria-hidden="true" />
+          ) : (
+            <X size={14} strokeWidth={1.5} className="scripts-run-result__icon" aria-hidden="true" />
+          )}
+          <span className="scripts-run-result__text scripts-run-result__text--full">{info.full}</span>
+          <span className="scripts-run-result__text scripts-run-result__text--short">{info.short}</span>
+        </div>
+        <div className="scripts-run-result__progress">
+          <div className="scripts-run-result__progress-fill" onAnimationEnd={dismiss} />
         </div>
       </div>
     </div>
@@ -386,9 +454,10 @@ function CrossfadeSwap<K extends string>({
 
 type ScriptsProps = {
   scripts: Scripts;
+  runner: Runner;
 };
 
-export default function Scripts({ scripts }: ScriptsProps) {
+export default function Scripts({ scripts, runner }: ScriptsProps) {
   const {
     directoryPath,
     setDirectoryPath,
@@ -420,6 +489,30 @@ export default function Scripts({ scripts }: ScriptsProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef(new Map<string, HTMLDivElement>());
+
+  // Single in-list run-result message — mirrors pendingDeletePath: only one
+  // can ever be shown, and a new one (any script, even the same one running
+  // again) replaces the previous outright instead of stacking.
+  const [runResult, setRunResult] = useState<{ seq: number; path: string; info: RunResultInfo } | null>(null);
+
+  // Reacts to runner.pendingResult — an *event* (a fresh object every time a
+  // run finishes, via its own incrementing seq) rather than derived state,
+  // so two consecutive identical errors still each trigger a redisplay.
+  // consumeResult() clears it at the source immediately after capturing it
+  // into local state, so remounting this page later (e.g. switching
+  // sections and back) never re-shows a result already seen.
+  useEffect(() => {
+    const result = runner.pendingResult;
+    if (!result) return;
+    setRunResult({ seq: result.seq, path: result.path, info: getRunResultInfo(result) });
+    runner.consumeResult();
+  }, [runner.pendingResult, runner.consumeResult]);
+
+  // Hides any leftover result card the moment a new run starts, instead of
+  // letting it linger for up to 5 more seconds next to a now-stale outcome.
+  useEffect(() => {
+    if (runner.isRunning) setRunResult(null);
+  }, [runner.isRunning]);
 
   // The toolbar trash icon targets the open file, which may be scrolled out
   // of view in a long list — bring it on screen so the confirmation card it
@@ -518,6 +611,13 @@ export default function Scripts({ scripts }: ScriptsProps) {
                       onCancel={cancelPendingDelete}
                     />
                   )}
+                  {runResult && runResult.path === script.path && (
+                    <RunResultCard
+                      key={runResult.seq}
+                      info={runResult.info}
+                      onDone={() => setRunResult(null)}
+                    />
+                  )}
                 </Fragment>
               ))}
             </div>
@@ -575,9 +675,19 @@ export default function Scripts({ scripts }: ScriptsProps) {
                       />
                       <EditorToolbarButton
                         icon={Zap}
-                        label="Ejecutar script (próximamente)"
-                        disabled
+                        label={runner.isRunning ? 'Ejecutando…' : 'Ejecutar script'}
+                        onClick={() => void runner.run(displaySelected, content)}
+                        disabled={runner.isRunning}
+                        pulse={runner.isRunning}
                       />
+                      {runner.isRunning && (
+                        <EditorToolbarButton
+                          icon={X}
+                          label="Cancelar ejecución"
+                          onClick={() => void runner.cancel()}
+                          danger
+                        />
+                      )}
                     </div>
                   </div>
                   <CrossfadeSwap
