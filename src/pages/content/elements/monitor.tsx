@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
+import { useSlideMessage } from '@poky-dev/slide-message';
 import {
   Network,
   Gauge,
@@ -30,6 +31,10 @@ type Connection = ReturnType<typeof useSshConnection>;
 
 const RANGES = ['30min', '1h', '6h', '24h'] as const;
 type Range = (typeof RANGES)[number];
+
+/** Range switching isn't implemented yet — the active tab stays fixed and
+ * clicking any tab just surfaces the "not implemented" notice. */
+const ACTIVE_RANGE: Range = '30min';
 
 function formatUptime(totalSeconds: number): string {
   const days = Math.floor(totalSeconds / 86400);
@@ -166,7 +171,7 @@ type MonitorProps = {
 };
 
 export default function Monitor({ connection }: MonitorProps) {
-  const [range, setRange] = useState<Range>('30min');
+  const { notify } = useSlideMessage();
   const liveMetrics = useLiveMetrics();
   const latest = useMonitorStore((s) => s.latest);
   const lastError = useMonitorStore((s) => s.lastError);
@@ -193,9 +198,9 @@ export default function Monitor({ connection }: MonitorProps) {
               key={r}
               type="button"
               role="tab"
-              aria-selected={range === r}
-              className={`monitor-range-tab${range === r ? ' monitor-range-tab--active' : ''}`}
-              onClick={() => setRange(r)}
+              aria-selected={r === ACTIVE_RANGE}
+              className={`monitor-range-tab${r === ACTIVE_RANGE ? ' monitor-range-tab--active' : ''}`}
+              onClick={() => notify({ position: 'bottom-right', offsetY: 56 })}
             >
               {r}
             </button>

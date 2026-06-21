@@ -39,7 +39,7 @@
 /* ── KPI strip ── */
 .monitor-kpis {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-3);
 }
 
@@ -75,6 +75,9 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .monitor-kpi__value {
@@ -96,17 +99,22 @@
   font-family: var(--font-code);
   font-size: 11px;
   color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .monitor-kpi__dual {
   display: flex;
   gap: var(--space-4);
+  min-width: 0;
 }
 
 .monitor-kpi__dual-item {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  min-width: 0;
 }
 
 .monitor-kpi__dual-value {
@@ -270,4 +278,34 @@
   .monitor-resource-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ── KPI strip: compact when the sidebar is expanded ──
+   The sidebar eats 164px of width (220px vs 56px collapsed) without
+   changing the window size, so the 4 KPI cards need to shrink their own
+   content (not wrap to 2 columns) to keep fitting in one row. Tied
+   directly to .sidebar--collapsed instead of a width breakpoint. */
+.sidebar:not(.sidebar--collapsed) ~ .dashboard__main .monitor-kpis {
+  gap: var(--space-2);
+}
+
+.sidebar:not(.sidebar--collapsed) ~ .dashboard__main .monitor-kpi {
+  padding: 10px var(--space-3);
+  gap: 6px;
+}
+
+.sidebar:not(.sidebar--collapsed) ~ .dashboard__main .monitor-kpi__value {
+  font-size: 17px;
+}
+
+.sidebar:not(.sidebar--collapsed) ~ .dashboard__main .monitor-kpi__sub {
+  font-size: 10px;
+}
+
+.sidebar:not(.sidebar--collapsed) ~ .dashboard__main .monitor-kpi__dual {
+  gap: var(--space-2);
+}
+
+.sidebar:not(.sidebar--collapsed) ~ .dashboard__main .monitor-kpi__dual-value {
+  font-size: 15px;
 }
