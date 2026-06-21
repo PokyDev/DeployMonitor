@@ -60,13 +60,18 @@ export function useScriptFiles() {
   const [contentError, setContentError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
 
-  const [autosave, setAutosave] = useState(false);
+  const [autosave, setAutosaveState] = useState(false);
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
   const [pendingDeletePath, setPendingDeletePath] = useState<string | null>(null);
+
+  // Tracks which file's content is the "current" one, so a slow read that
+  // resolves after the user has already switched/deselected can be told
+  // apart from the read that's actually still relevant and discarded.
+  const selectedPathRef = useRef<string | null>(null);
 
   // Restore the persisted directory once on mount.
   useEffect(() => {
@@ -78,6 +83,24 @@ export function useScriptFiles() {
     return () => {
       active = false;
     };
+  }, []);
+
+  // Restore the persisted autosave toggle once on mount — same store as the
+  // directory path, so it survives app restarts instead of resetting to off.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const saved = await scriptsStore.get<boolean>('autosave');
+      if (active && saved !== undefined && saved !== null) setAutosaveState(saved);
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const setAutosave = useCallback((value: boolean) => {
+    setAutosaveState(value);
+    void scriptsStore.set('autosave', value);
   }, []);
 
   const refreshFiles = useCallback(async (dir: string) => {
@@ -104,22 +127,27 @@ export function useScriptFiles() {
   const setDirectoryPath = useCallback((value: string) => {
     setDirectoryPathState(value);
     void scriptsStore.set('directoryPath', value);
+    selectedPathRef.current = null;
     setSelected(null);
     setContentState('');
     setDirty(false);
   }, []);
 
   const loadContent = useCallback(async (file: ScriptFileEntry) => {
+    selectedPathRef.current = file.path;
     setContentLoading(true);
     setContentError(null);
     setDirty(false);
     try {
-      setContentState(await scriptFsRead(file.path));
+      const text = await scriptFsRead(file.path);
+      if (selectedPathRef.current !== file.path) return;
+      setContentState(text);
     } catch (err) {
+      if (selectedPathRef.current !== file.path) return;
       setContentError(errorMessage(err));
       setContentState('');
     } finally {
-      setContentLoading(false);
+      if (selectedPathRef.current === file.path) setContentLoading(false);
     }
   }, []);
 
@@ -134,6 +162,7 @@ export function useScriptFiles() {
   );
 
   const deselectFile = useCallback(() => {
+    selectedPathRef.current = null;
     setSelected(null);
     setContentState('');
     setDirty(false);
@@ -185,6 +214,7 @@ export function useScriptFiles() {
         setCreating(false);
         setCreateError(null);
         await refreshFiles(directoryPath);
+        selectedPathRef.current = entry.path;
         setSelected(entry);
         setContentState('');
         setDirty(false);
@@ -209,6 +239,7 @@ export function useScriptFiles() {
         return;
       }
       if (selected?.path === path) {
+        selectedPathRef.current = null;
         setSelected(null);
         setContentState('');
         setDirty(false);

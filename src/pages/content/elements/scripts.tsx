@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
@@ -280,12 +281,6 @@ async function pickScriptDirectory(): Promise<string | null> {
   return null;
 }
 
-function contentStatusLines(loading: boolean, error: string | null): string[] | null {
-  if (loading) return ['Cargando…'];
-  if (error) return [error];
-  return null;
-}
-
 /** Standalone empty state shown in `.scripts-right` when no file is selected
  * — mutually exclusive with `.scripts-editor`, never nested inside it, so
  * the editor's tab/toolbar header never shows without an open file. */
@@ -297,6 +292,7 @@ function ScriptsEmptyState() {
       </div>
       <p className="scripts-empty-state__title">Explora tus scripts</p>
       <p className="scripts-empty-state__sub">Esto es lo que puedes hacer con tus archivos:</p>
+      <br />
       <ul className="scripts-empty-state__guide">
         <li className="scripts-empty-state__guide-item scripts-empty-state__guide-item--create">
           <span className="scripts-empty-state__guide-icon">
@@ -312,7 +308,7 @@ function ScriptsEmptyState() {
             <MousePointer2 size={14} strokeWidth={1.5} aria-hidden="true" />
           </span>
           <span className="scripts-empty-state__guide-text">
-            <strong>Abrir y editar</strong>
+            <strong>Editar</strong>
             <span>Un click sobre un script lo abre en el editor.</span>
           </span>
         </li>
@@ -326,6 +322,64 @@ function ScriptsEmptyState() {
           </span>
         </li>
       </ul>
+    </div>
+  );
+}
+
+type PaneKey = 'empty' | 'editor';
+
+/** Generic crossfade: whenever `activeKey` changes, the currently-shown
+ * content fades out in place; once that fade-out finishes, content is
+ * swapped for `render(activeKey)` and held invisible until `ready` is true,
+ * then fades in. With no `ready` gate (default `true`) it's a plain
+ * crossfade — used for the empty-state ↔ editor swap. With `ready` tied to
+ * `!contentLoading`, the invisible wait doubles as the file-switch
+ * transition: nothing is shown while the new file's content is being read,
+ * then it fades in once available — same idiom, no separate loading visual.
+ * Reuses the mount-invisible-then-flip-a-frame-later trick `DeleteConfirmCard`
+ * uses for its entrance, just applied to a content swap instead of a mount. */
+function CrossfadeSwap<K extends string>({
+  activeKey,
+  ready = true,
+  className,
+  render,
+}: {
+  activeKey: K;
+  ready?: boolean;
+  className: string;
+  render: (key: K) => ReactNode;
+}) {
+  const [shown, setShown] = useState(activeKey);
+  const [stage, setStage] = useState<'idle' | 'leaving' | 'entering'>(() => (ready ? 'idle' : 'entering'));
+
+  // With reduced motion, the fade's CSS transition is dropped, so the
+  // `onTransitionEnd` this state machine relies on would never fire — swap
+  // immediately instead of waiting on a transition that won't happen.
+  useEffect(() => {
+    if (activeKey === shown || stage !== 'idle') return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setShown(activeKey);
+      return;
+    }
+    setStage('leaving');
+  }, [activeKey, shown, stage]);
+
+  useEffect(() => {
+    if (stage !== 'entering' || !ready) return;
+    const raf = requestAnimationFrame(() => setStage('idle'));
+    return () => cancelAnimationFrame(raf);
+  }, [stage, ready]);
+
+  return (
+    <div
+      className={`${className} scripts-fade${stage === 'idle' ? ' scripts-fade--visible' : ''}`}
+      onTransitionEnd={(e) => {
+        if (e.propertyName !== 'opacity' || stage !== 'leaving') return;
+        setShown(activeKey);
+        setStage('entering');
+      }}
+    >
+      {render(shown)}
     </div>
   );
 }
@@ -404,7 +458,15 @@ export default function Scripts({ scripts }: ScriptsProps) {
     if (dir) setDirectoryPath(dir);
   };
 
-  const statusLines = contentStatusLines(contentLoading, contentError);
+  // The editor pane keeps rendering the last selected file's tab/toolbar
+  // while it fades out after a deselect, instead of needing `selected`
+  // (already null at that point) to build that JSX.
+  const lastSelectedRef = useRef<ScriptFileEntry | null>(selected);
+  useEffect(() => {
+    if (selected) lastSelectedRef.current = selected;
+  }, [selected]);
+  const displaySelected = selected ?? lastSelectedRef.current;
+
   const subtitle = !directoryPath
     ? 'Selecciona un directorio para ver tus scripts'
     : filesLoading
@@ -476,53 +538,64 @@ export default function Scripts({ scripts }: ScriptsProps) {
             </button>
           </div>
 
-          {!selected ? (
-            <ScriptsEmptyState />
-          ) : (
-            <div className="scripts-editor">
-              <div className="scripts-editor__tabs">
-                <div className="scripts-editor__tabs-left">
-                  <div className="scripts-editor__tab scripts-editor__tab--active">
-                    <FileCode size={14} strokeWidth={1.5} className="scripts-editor__tab-icon" aria-hidden="true" />
-                    {selected.name}
+          <CrossfadeSwap<PaneKey>
+            activeKey={selected ? 'editor' : 'empty'}
+            className="scripts-pane"
+            render={(pane) =>
+              pane === 'empty' ? (
+                <ScriptsEmptyState />
+              ) : !displaySelected ? null : (
+                <div className="scripts-editor">
+                  <div className="scripts-editor__tabs">
+                    <div className="scripts-editor__tabs-left">
+                      <div className="scripts-editor__tab scripts-editor__tab--active">
+                        <FileCode size={14} strokeWidth={1.5} className="scripts-editor__tab-icon" aria-hidden="true" />
+                        {displaySelected.name}
+                      </div>
+                    </div>
+                    <div className="scripts-toolbar">
+                      <EditorToolbarButton
+                        icon={RefreshCw}
+                        label={autosave ? 'Autoguardado activado' : 'Activar autoguardado'}
+                        active={autosave}
+                        pressed={autosave}
+                        onClick={() => setAutosave(!autosave)}
+                      />
+                      <EditorToolbarButton
+                        icon={Save}
+                        label="Guardar"
+                        onClick={() => void save()}
+                        disabled={!dirty}
+                      />
+                      <EditorToolbarButton
+                        icon={Trash2}
+                        label="Eliminar archivo"
+                        onClick={() => requestDeleteFromToolbar(displaySelected.path)}
+                        danger
+                      />
+                      <EditorToolbarButton
+                        icon={Zap}
+                        label="Ejecutar script (próximamente)"
+                        disabled
+                      />
+                    </div>
                   </div>
-                </div>
-                <div className="scripts-toolbar">
-                  <EditorToolbarButton
-                    icon={RefreshCw}
-                    label={autosave ? 'Autoguardado activado' : 'Activar autoguardado'}
-                    active={autosave}
-                    pressed={autosave}
-                    onClick={() => setAutosave(!autosave)}
-                  />
-                  <EditorToolbarButton
-                    icon={Save}
-                    label="Guardar"
-                    onClick={() => void save()}
-                    disabled={!dirty}
-                  />
-                  <EditorToolbarButton
-                    icon={Trash2}
-                    label="Eliminar archivo"
-                    onClick={() => requestDeleteFromToolbar(selected.path)}
-                    danger
-                  />
-                  <EditorToolbarButton
-                    icon={Zap}
-                    label="Ejecutar script (próximamente)"
-                    disabled
+                  <CrossfadeSwap
+                    activeKey={displaySelected.path}
+                    ready={!contentLoading}
+                    className="scripts-editor__body"
+                    render={() =>
+                      contentError ? (
+                        <CodeBlock lines={[contentError]} />
+                      ) : (
+                        <CodeEditor value={content} onChange={setContent} />
+                      )
+                    }
                   />
                 </div>
-              </div>
-              <div className="scripts-editor__body">
-                {statusLines ? (
-                  <CodeBlock lines={statusLines} />
-                ) : (
-                  <CodeEditor value={content} onChange={setContent} />
-                )}
-              </div>
-            </div>
-          )}
+              )
+            }
+          />
         </div>
       </div>
 

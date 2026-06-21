@@ -232,6 +232,34 @@
   animation-play-state: paused;
 }
 
+/* ── Crossfade — see CrossfadeSwap. Shared fade+slide applied to two
+   different layout contexts: .scripts-pane (the empty-state ↔ editor slot,
+   a column flex filling .scripts-right) and .scripts-editor__body (the
+   file-switch slot, a row flex filling .scripts-editor — gutter + code side
+   by side). Only one of each pane's two states is ever mounted at a time;
+   the outgoing one fades out in place before the incoming one fades in. ── */
+.scripts-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.scripts-fade {
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity var(--duration-base) var(--ease-out), transform var(--duration-base) var(--ease-out);
+}
+
+.scripts-fade--visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.scripts-fade:not(.scripts-fade--visible) {
+  pointer-events: none;
+}
+
 /* ── Editor ── */
 .scripts-editor {
   display: flex;
@@ -668,7 +696,8 @@
 
   /* Minimized 700×600 window: the wide-layout empty state (bigger icon,
      3-up guide row) doesn't fit a ~70%-of-700px panel — scale back to a
-     compact stacked column, slightly larger than the pre-redesign sizes. */
+     compact size and drop the description, keeping just icon + title in a
+     3-column row so the guide still reads at a glance in the narrow panel. */
   .scripts-empty-state {
     gap: var(--space-3);
     padding: var(--space-4) var(--space-3);
@@ -693,20 +722,21 @@
   }
 
   .scripts-empty-state__guide {
-    flex-direction: column;
+    flex-direction: row;
     flex-wrap: nowrap;
-    justify-content: flex-start;
-    gap: var(--space-3);
+    justify-content: space-between;
+    gap: var(--space-2);
     max-width: 100%;
     margin-top: 0;
   }
 
   .scripts-empty-state__guide-item {
-    flex-direction: row;
-    align-items: flex-start;
-    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: center;
+    flex: 1 1 0;
+    min-width: 0;
     max-width: 100%;
-    text-align: left;
+    text-align: center;
   }
 
   .scripts-empty-state__guide-icon {
@@ -720,7 +750,7 @@
   }
 
   .scripts-empty-state__guide-text {
-    align-items: flex-start;
+    align-items: center;
     gap: 1px;
   }
 
@@ -728,9 +758,9 @@
     font-size: 12px;
   }
 
+  /* Description dropped at this width — icon + title only. */
   .scripts-empty-state__guide-text span {
-    font-size: 11px;
-    line-height: 1.4;
+    display: none;
   }
 }
 
@@ -745,6 +775,13 @@
      before auto-cancel), not just visual flourish. */
   .scripts-delete-confirm,
   .scripts-delete-confirm__inner {
+    transition: none;
+  }
+
+  /* The fade+slide crossfade is also purely decorative — CrossfadeSwap
+     detects this media query itself and skips straight to the new content
+     instead of relying on a transition that won't fire. */
+  .scripts-fade {
     transition: none;
   }
 }
