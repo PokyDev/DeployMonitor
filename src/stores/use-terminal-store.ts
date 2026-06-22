@@ -3,7 +3,6 @@ import { listen } from '@tauri-apps/api/event';
 import type { Terminal } from '@xterm/xterm';
 import { ptyResize, ptyStart, ptyStop, ptyWrite } from '../lib/tauri-commands';
 import { detectSshOutput, containsLocalPromptSentinel } from '../lib/ssh-utils';
-import { matchScriptRunEnd, SCRIPT_RUN_CARRY_LENGTH } from '../lib/script-run-utils';
 
 // Module-level — prevents double-registration of the pty:data listener in React StrictMode.
 let _terminalListening = false;
@@ -35,19 +34,6 @@ type TerminalStore = SshCallbacks & {
   /** Set when requestUnlock() is called before unlockFn is registered. */
   unlockPending: boolean;
 
-  /** True while a script run's end marker is being watched for — see use-script-runner.ts. */
-  scriptRunActive: boolean;
-  /** Unique id of the in-flight run, embedded in the end marker we scan for. */
-  scriptRunId: string | null;
-  /** Trailing slice of recently seen pty output — a marker can land split across two pty:data events. */
-  scriptRunCarry: string;
-  /** setTimeout id for the run's safety timeout (marker never arrives). */
-  scriptRunTimeoutId: number | null;
-  /** Unsubscribes the watcher that ends detection early if sshConnected drops mid-run. */
-  scriptRunUnsubscribe: (() => void) | null;
-  /** Exit code on success, or null if detection ended via timeout/disconnect instead of the marker. */
-  scriptRunEndCb: ((exitCode: number | null) => void) | null;
-
   init: () => Promise<void>;
   setTerminal: (term: Terminal | null) => void;
   start: (cols: number, rows: number) => Promise<void>;
@@ -74,14 +60,6 @@ type TerminalStore = SshCallbacks & {
   stopSshDetection: () => void;
   /** Writes a frontend-generated system message directly to xterm (not to the PTY). */
   writeSystemMessage: (text: string) => void;
-
-  /** Arms end-marker detection for a script run. Ends early (null exit code)
-   * if sshConnected drops or `timeoutMs` elapses before the marker is seen. */
-  startScriptRunDetection: (runId: string, timeoutMs: number) => void;
-  /** Disarms detection — safe to call even if nothing is running. */
-  stopScriptRunDetection: () => void;
-  /** Registers the callback fired once when the run ends (success, timeout, or disconnect). */
-  registerScriptRunCallbacks: (cbs: { onEnd: ((exitCode: number | null) => void) | null }) => void;
 };
 
 export const useTerminalStore = create<TerminalStore>((set, get) => ({
@@ -96,13 +74,6 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
 
   unlockFn: null,
   unlockPending: false,
-
-  scriptRunActive: false,
-  scriptRunId: null,
-  scriptRunCarry: '',
-  scriptRunTimeoutId: null,
-  scriptRunUnsubscribe: null,
-  scriptRunEndCb: null,
 
   sshConnectedCb: null,
   sshFailedCb: null,
@@ -153,21 +124,6 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
         ) {
           set({ sshConnected: false });
           get().sshExitCb?.();
-        }
-      }
-
-      // Script-run end-marker detection — independent of the SSH lifecycle
-      // detection above. Keeps a small carry buffer because the marker can
-      // land split across two separate pty:data events.
-      if (state.scriptRunActive && state.scriptRunId) {
-        const carry = state.scriptRunCarry + event.payload;
-        const exitCode = matchScriptRunEnd(carry, state.scriptRunId);
-        if (exitCode !== null) {
-          const cb = state.scriptRunEndCb;
-          get().stopScriptRunDetection();
-          cb?.(exitCode);
-        } else {
-          set({ scriptRunCarry: carry.slice(-SCRIPT_RUN_CARRY_LENGTH) });
         }
       }
 
@@ -261,50 +217,5 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
 
   writeSystemMessage: (text) => {
     get().terminal?.write(text);
-  },
-
-  startScriptRunDetection: (runId, timeoutMs) => {
-    // Guards against overlapping arms — the runner only ever starts one run
-    // at a time, but this keeps the store's invariants self-contained.
-    get().stopScriptRunDetection();
-
-    const unsubscribe = useTerminalStore.subscribe((next, prev) => {
-      if (prev.sshConnected && !next.sshConnected) {
-        const cb = get().scriptRunEndCb;
-        get().stopScriptRunDetection();
-        cb?.(null);
-      }
-    });
-
-    const timeoutId = window.setTimeout(() => {
-      const cb = get().scriptRunEndCb;
-      get().stopScriptRunDetection();
-      cb?.(null);
-    }, timeoutMs);
-
-    set({
-      scriptRunActive: true,
-      scriptRunId: runId,
-      scriptRunCarry: '',
-      scriptRunTimeoutId: timeoutId,
-      scriptRunUnsubscribe: unsubscribe,
-    });
-  },
-
-  stopScriptRunDetection: () => {
-    const { scriptRunTimeoutId, scriptRunUnsubscribe } = get();
-    if (scriptRunTimeoutId) window.clearTimeout(scriptRunTimeoutId);
-    scriptRunUnsubscribe?.();
-    set({
-      scriptRunActive: false,
-      scriptRunId: null,
-      scriptRunCarry: '',
-      scriptRunTimeoutId: null,
-      scriptRunUnsubscribe: null,
-    });
-  },
-
-  registerScriptRunCallbacks: (cbs) => {
-    set({ scriptRunEndCb: cbs.onEnd ?? null });
   },
 }));

@@ -167,7 +167,6 @@ export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) 
 
   const isRunning = useTerminalStore((s) => s.isRunning);
   const locked = useTerminalStore((s) => s.locked);
-  const scriptRunActive = useTerminalStore((s) => s.scriptRunActive);
 
   // Live clock for the lock screen.
   useEffect(() => {
@@ -298,17 +297,6 @@ export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) 
   useEffect(() => {
     void useTerminalStore.getState().init();
   }, []);
-
-  // Read-only while a script run's end marker is being watched for — same
-  // disableStdin mechanism the lock screen already uses, so the user can't
-  // type over the injected command or the marker use-script-runner.ts waits
-  // for. Guarded by `locked` so it never fights the unlock animation's own
-  // disableStdin toggling (the two states aren't expected to overlap).
-  useEffect(() => {
-    const term = termRef.current;
-    if (!term || locked) return;
-    term.options.disableStdin = scriptRunActive;
-  }, [scriptRunActive, locked]);
 
   // Start the local shell as soon as the dashboard mounts — not when the
   // panel is first expanded — so a session is already live (and able to
