@@ -1,77 +1,108 @@
 /* ========================
    history.css
-   History section — execution log table + detail modal
+   History section — execution card grid + detail modal
    ======================== */
 
-.history-table {
+/* ── Card grid — auto-fit reflows the column count on its own as available
+   width changes (maximized window, minimized window, sidebar expanded vs
+   collapsed eating 164px) instead of needing per-state breakpoints. ── */
+.history-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-3);
+}
+
+.history-card {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-}
-
-.history-row {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr 0.9fr 0.8fr 1.1fr 110px;
-  align-items: center;
-  gap: var(--space-3);
-  padding: 13px var(--space-4);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.history-row:last-child {
-  border-bottom: none;
-}
-
-.history-row--head {
-  padding-top: 11px;
-  padding-bottom: 11px;
-}
-
-.history-row__heading {
-  font-family: var(--font-ui);
-  font-weight: 600;
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.history-row:not(.history-row--head) {
-  transition: background-color var(--duration-fast) var(--ease-out);
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out);
   animation: dm-fade-in var(--duration-base) var(--ease-out) both;
 }
 
-.history-row:not(.history-row--head):hover {
+.history-card:hover {
   background: var(--bg-elevated);
+  border-color: var(--border-default);
 }
 
-.history-row__name {
+.history-card:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 2px;
+}
+
+.history-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.history-card__name {
   font-family: var(--font-ui);
   font-weight: 500;
-  font-size: 13px;
+  font-size: 13.5px;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.history-row__meta {
-  font-family: var(--font-code);
-  font-size: 12px;
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.history-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
 }
 
-.history-row__time {
+.history-card__date {
   font-family: var(--font-code);
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--text-muted);
 }
 
-.history-row__detail {
-  justify-self: end;
+/* ── Extension identity chip — icon + color, shared by the card header and
+   the modal title so a card visually carries over into the modal it opens. ── */
+.history-ext-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: var(--radius-lg);
+}
+
+.history-ext-icon--card {
+  width: 34px;
+  height: 34px;
+}
+
+.history-ext-icon--modal {
+  width: 28px;
+  height: 28px;
+}
+
+.history-ext-icon--sh {
+  color: var(--color-success-light);
+  background: rgba(61, 158, 104, 0.15);
+}
+
+.history-ext-icon--py {
+  color: var(--color-lang-py);
+  background: rgba(201, 162, 39, 0.16);
+}
+
+.history-ext-icon--js {
+  color: var(--color-info-light);
+  background: rgba(40, 116, 166, 0.15);
+}
+
+.history-ext-icon--default {
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
 }
 
 /* ── Modal ── */
@@ -108,6 +139,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-3);
   padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--border-subtle);
   flex: 0 0 auto;
@@ -116,22 +148,24 @@
 .history-modal__title {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
+  min-width: 0;
   font-family: var(--font-title);
   font-weight: 500;
   font-size: 15px;
   color: var(--text-primary);
 }
 
-.history-modal__title-icon {
-  display: grid;
-  place-items: center;
-  color: var(--color-gold);
+.history-modal__title span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .history-modal__close {
   width: 32px;
   height: 32px;
+  flex: 0 0 auto;
 }
 
 .history-modal__body {
@@ -151,31 +185,40 @@
   flex: 0 0 auto;
 }
 
-/* ── Log meta grid ── */
-.history-log-meta {
+/* ── Detail stat chips — replaces the old flat key/value grid with a panel
+   of small bordered chips, 2 per row, closer to a proper detail view. ── */
+.history-stat-grid {
   display: grid;
-  grid-template-columns: auto 1fr;
-  column-gap: var(--space-4);
-  row-gap: 9px;
-  align-items: center;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-2);
 }
 
-.history-log-meta__key {
+.history-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px var(--space-3);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+.history-stat__key {
   font-family: var(--font-ui);
   font-weight: 600;
-  font-size: 10.5px;
+  font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-muted);
 }
 
-.history-log-meta__value {
+.history-stat__value {
   font-family: var(--font-code);
   font-size: 13px;
   color: var(--text-primary);
 }
 
-.history-log-meta__value--gold {
+.history-stat__value--gold {
   color: var(--color-gold);
 }
 
@@ -204,20 +247,29 @@
 .history-log-term__line--ok     { color: var(--color-success-light); }
 .history-log-term__line--err    { color: var(--color-error-light); }
 
+/* Minimized window (~700×600): the modal's fixed max-height has much less
+   room to spend, so the log block trades its max-height for the stat grid
+   and head/foot instead of relying on the body's internal scroll. */
 @media (max-width: 760px) {
-  .history-row {
-    grid-template-columns: 1.2fr 1fr 0.8fr 90px;
+  .history-card {
+    padding: var(--space-3);
+    gap: var(--space-3);
   }
-  .history-row__meta:nth-child(4),
-  .history-row__time {
-    display: none;
+
+  .history-ext-icon--card {
+    width: 30px;
+    height: 30px;
+  }
+
+  .history-log-term {
+    max-height: 170px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .history-modal-overlay,
   .history-modal,
-  .history-row:not(.history-row--head),
+  .history-card,
   .history-log-term__line {
     animation: none;
   }

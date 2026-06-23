@@ -315,7 +315,13 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  animation: dm-fade-in var(--duration-base) var(--ease-out) both;
+  /* No `both`/`forwards` fill-mode: either one pins the keyframe's `to`
+     transform (translateY(0)) on this element forever, which — despite
+     being visually a no-op — makes it the containing block for any
+     `position: fixed` descendant (modals, context menus) instead of the
+     viewport. Letting fill-mode default to `none` makes the computed
+     transform revert to `none` once the fade-in finishes. */
+  animation: dm-fade-in var(--duration-base) var(--ease-out);
 }
 
 @media (prefers-reduced-motion: reduce) {

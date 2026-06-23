@@ -143,6 +143,9 @@
   --color-idle:          #3D3D3D;
   --color-info-light:    #2874A6;
 
+  /* Identidad de lenguaje (Historial — icono por extensión de script) */
+  --color-lang-py:       #C9A227;
+
   /* Tipografía */
   --font-display: 'IBM Plex Mono', 'Courier New', monospace;
   --font-title:   'Stack Sans Notch', 'IBM Plex Mono', monospace;
