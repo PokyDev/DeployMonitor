@@ -13,15 +13,15 @@ Architecture and stack for DeployMonitor / SSH Manager.
 ├─────────────────────────────────────┤
 │  CORE    — Rust · Tauri commands    │
 ├─────────────────────────────────────┤
-│  DATA    — SQLite · sqlx            │
+│  DATA    — Local disk · JSON files  │
 └─────────────────────────────────────┘
 ```
 
-**Client** handles all UI and user interaction. Communicates with Core via `invoke()` (commands) and `listen()` (events) exclusively. No direct FS or OS access.
+**Client** handles all UI and user interaction. Communicates with Core via `invoke()` (commands) and `listen()` (events) exclusively. No direct FS or OS access, except non-sensitive UI settings (`tauri-plugin-store`) — see note below.
 
 **Core** owns all business logic, SSH sessions, credential handling, and `.pem` file reads. The only layer that opens sockets or reads sensitive files.
 
-**Data** is SQLite local, async via `sqlx`. Accessed only from Core — never from the Client.
+**Data** is the local filesystem — no embedded database. Scripts, script run-history, and monitoring snapshots are all plain files under app- or user-controlled directories, read/written from Core via `tokio::fs` + `serde_json`. Accessed only from Core — never from the Client — except `tauri-plugin-store`, a Tauri-managed JSON key-value store the renderer is allowed to call directly for small non-sensitive settings (e.g. `connectionString`, `pemPath` — the path only, never file content). See "SQLite removed, disk-based JSON adopted instead (2026-06-23)" under Backend Stack below for why there's no DB layer.
 
 ---
 
@@ -56,7 +56,6 @@ Architecture and stack for DeployMonitor / SSH Manager.
 | SSH | `russh` | 0.44.x |
 | SFTP | `russh-sftp` | companion |
 | PTY | `portable-pty` | 0.8 |
-| Database | `sqlx` (SQLite, async) | 0.7.x |
 | Serialization | `serde` + `serde_json` | 1.x |
 | Password hashing | `argon2` | 0.5.x |
 | Error handling | `thiserror` + `anyhow` | 1.x |
@@ -71,6 +70,8 @@ Architecture and stack for DeployMonitor / SSH Manager.
 **`@xterm/xterm` over a custom ANSI/VT100 parser (2026-06-11):** The frontend originally rendered PTY/SSH output through a hand-written SGR-only ANSI-to-HTML converter. That converter cannot interpret cursor-positioning or alt-screen sequences, so any interactive program (`vim`, `htop`, `less`, `nano`, package-manager menus) renders as garbled text instead of a redrawn screen. `portable-pty` and the `russh` PTY channel are unaffected — they still emit raw byte streams. Only the frontend consumer changed. See `spec-terminal.md` § "Architecture Decision: xterm.js" for the full rationale and migration notes.
 
 **Script execution stays on the interactive channel, not a separate exec channel (2026-06-22):** Two earlier attempts ran a script's content through the interactive terminal's PTY itself (base64-over-`ptyWrite`, then the same wrapped in `stty -echo` + an OSC marker) to avoid building a second output channel. Both leaked visible artifacts because that PTY echoes back anything written to it exactly as if typed — there's no way to inject a payload through it invisibly. The fix moves the *payload* (uploading the script) to a separate, invisible `russh` side-channel that never touches the terminal, while keeping *execution* — a single one-line command — on the interactive channel the user already has open, so output still streams live with normal xterm styling. See `spec-terminal.md` § "Architecture Decision: script execution stays on the interactive channel" and `spec-backend.md` § "Script Remote Execution".
+
+**SQLite removed, disk-based JSON adopted instead (2026-06-23):** `sqlx`/SQLite were declared (`Cargo.toml`) for two never-built use cases: script run-history (`sync_history`) and monitoring time-series (`metric_snapshots`). Neither was ever implemented — no `db` module, no `AppState.db`, no migration ever ran. Meanwhile the rest of the app had already organically settled on disk-based persistence without a DB: scripts are flat files (`script_fs_service.rs`), and connection settings live in `tauri-plugin-store` JSON (`use-ssh-connection.ts`). For a single-user desktop tool, an embedded DB engine adds setup/migration surface for zero relational benefit — there are no joins or transactions this app actually needs. Script run-history is now one JSON file per execution (see `spec-backend.md` § "Script Run History"); monitoring snapshots are an append-only JSONL file per day (see `spec-backend.md` § "Monitoring Snapshots"). The local username/password login design in `spec-navigation.md` also references SQLite and is also unimplemented, but is explicitly **out of scope** for this decision — it needs its own follow-up.
 
 ---
 
@@ -146,11 +147,8 @@ deploy-monitor/
 │   │   ├── errors.rs
 │   │   ├── commands/
 │   │   ├── services/
-│   │   ├── repositories/
 │   │   ├── models/
-│   │   ├── ssh/
-│   │   └── db/
-│   │       └── migrations/
+│   │   └── ssh/
 │   ├── capabilities/
 │   ├── Cargo.toml
 │   └── tauri.conf.json
@@ -237,3 +235,4 @@ export const useMonitorStore = create<MonitorStore>((set) => ({
 | CSS Modules | Tailwind | Design token system requires precise CSS custom property control |
 | `tauri-plugin-dialog` | Third-party dialogs | Official plugin, `.pem` path never touches renderer |
 | Script execution on interactive channel | Separate exec-channel execution + read-only output viewer | base64-over-PTY and `stty`+OSC bracketing both leaked visible artifacts; payload injection on the interactive channel is fundamentally indistinguishable from typed input — see `spec-terminal.md` § "Architecture Decision: script execution stays on the interactive channel" |
+| Disk-based JSON (no DB) | SQLite (`sqlx`) | Never implemented in practice; rest of the app already uses flat files/`tauri-plugin-store`; no relational/transactional need for a single-user desktop tool — see "SQLite removed, disk-based JSON adopted instead (2026-06-23)" above |

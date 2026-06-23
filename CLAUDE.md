@@ -29,7 +29,7 @@ At the end of every significant session:
 | Task domain | Read first |
 |---|---|
 | UI / components / styles | `docs/spec-frontend.md` |
-| Rust commands / services / DB | `docs/spec-backend.md` |
+| Rust commands / services / disk persistence | `docs/spec-backend.md` |
 | Terminal (PTY + SSH) | `docs/spec-terminal.md` |
 | New screen or route | `docs/spec-navigation.md` |
 | Architecture decisions | `docs/spec-architecture.md` |
@@ -77,21 +77,22 @@ At the end of every significant session:
 - Terminal panel background is **always `#0D0D0D`** regardless of theme.
 
 ### Security
-- `.pem` file path is stored in SQLite. File is read in Rust only — never pass file contents to the renderer.
+- `.pem` file path is stored via `tauri-plugin-store` (`connection-settings.json`). File content is read in Rust only — never pass file contents to the renderer.
 - Passwords stored with Argon2id hash. Never log or expose plain-text credentials.
 - All renderer capabilities declared explicitly in `src-tauri/capabilities/`.
+- No embedded database (SQLite/`sqlx` removed from the architecture, 2026-06-23 — see `spec-architecture.md` § "SQLite removed, disk-based JSON adopted instead"). Script run-history and monitoring snapshots persist as plain JSON/JSONL files on disk — see `spec-backend.md` § "Script Run History" / "Monitoring Snapshots".
 
 ---
 
 ## Architecture Boundaries
 
 ```
-Renderer (React/TS)  ──invoke()──▶  Commands (Rust)  ──▶  Services  ──▶  Repositories
+Renderer (React/TS)  ──invoke()──▶  Commands (Rust)  ──▶  Services  ──▶  Disk (JSON/JSONL files)
                      ◀──events()──  Commands (Rust)
 ```
 
-- Renderer never accesses SQLite directly.
-- Renderer never reads `.pem` files.
+- Renderer never reads/writes the filesystem directly — script content, run-history logs, and monitoring snapshots all go through Rust commands. The one exception is `tauri-plugin-store`, which the renderer is allowed to call directly for small non-sensitive settings (e.g. connection string, `.pem` path).
+- Renderer never reads `.pem` *file content* — only its path, via `tauri-plugin-store`.
 - Services never import from `commands/`.
 - `ssh/` module has zero Tauri dependencies — pure Rust.
 
@@ -132,7 +133,8 @@ Full spec in `docs/spec-terminal.md`. Critical rules:
 - ❌ `shadcn/ui` — conflicts with the custom design system.
 - ❌ TypeScript `enum` — use `const` + `as const`.
 - ❌ Commit with `cargo clippy` warnings or TypeScript errors.
-- ❌ Store secrets, tokens, or `.pem` content in SQLite — paths only.
+- ❌ Store secrets, tokens, or `.pem` content anywhere on disk — only non-sensitive paths/settings via `tauri-plugin-store`.
+- ❌ Add an embedded database (SQLite or otherwise) — firm decision, 2026-06-23, see `spec-architecture.md` § "SQLite removed, disk-based JSON adopted instead".
 - ❌ `localStorage` or `sessionStorage` — use `tauri-plugin-store` if renderer persistence is needed.
 - ❌ Compliant responses — if an approach has problems, say so explicitly.
 
@@ -157,14 +159,15 @@ Full spec in `docs/spec-terminal.md`. Critical rules:
 - PTY terminal integration (`pty.rs`, `terminal-panel.tsx`, `use-terminal-store.ts`)
 - SSH connection (`ssh_test_connection`, public key auth via `russh`, typed errors)
 - Native `.pem` file picker via `tauri-plugin-dialog`
-- SQLite schema with migrations (`sqlx`)
 - Script local FS management (create/read/write/delete/rename) + SFTP upload/delete/rename sync to the instance, keyed by file name (`script_remote_service.rs`, `use-script-remote.ts`) — see `spec-backend.md` § "Script Remote Execution"
+- Script execution on the interactive terminal (upload/verify/rename sync + run-on-terminal via the OSC end-marker) — see `spec-backend.md` § "Script Remote Execution"
 
 **Next in queue:**
-1. Import Claude Design layouts (titlebar done manually by developer)
-2. Monitoring panel — dashboard summary cards + full monitoring view
-3. Script execution output on the interactive terminal — Part 2 of "Script Remote Execution": send the already-resolved `remote_path` to the open `pty`/terminal and detect completion via the OSC end-marker (upload/rename sync is done; this is what's left)
-4. Settings screen
+1. Settings screen
+2. Script run-history persistence — one JSON file per execution under `<scripts_dir>/outputs/`, consumed by the already-built (mock-data) Historial view (`history.tsx` / `use-mock-history.ts`) — see `spec-backend.md` § "Script Run History"
+3. Monitoring snapshot persistence — append-only JSONL day-files under `app_data_dir()/monitoring/`, to back the range tabs (30min/1h/6h/24h) in `monitor.tsx`, currently a "not implemented" stub — see `spec-backend.md` § "Monitoring Snapshots"
+
+> Note (2026-06-23): "Import Claude Design layouts" and "Monitoring panel" from the previous version of this list appear to already be implemented (`src/pages/landing`, `src/pages/content/elements/{monitor,overview,scripts,settings}.tsx` all exist) — worth a dedicated pass to verify and update this status list, separate from the SQLite-removal work above.
 
 ---
 

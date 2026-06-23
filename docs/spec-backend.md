@@ -16,6 +16,7 @@ src-tauri/src/
 │   ├── instances.rs
 │   ├── ssh.rs
 │   ├── scripts.rs
+│   ├── script_log.rs     # script_log_* — run-history JSON files
 │   ├── monitoring.rs
 │   └── pty.rs
 ├── services/             # Business logic — no Tauri imports
@@ -23,51 +24,38 @@ src-tauri/src/
 │   ├── instance-service.rs
 │   ├── ssh-service.rs
 │   ├── script-service.rs
-│   └── monitor-service.rs
-├── repositories/         # SQLite access — sqlx queries
-│   ├── mod.rs
-│   ├── instance-repo.rs
-│   ├── script-repo.rs
-│   ├── sync-history-repo.rs
-│   └── metric-snapshot-repo.rs
-├── models/               # Domain structs (Serialize/Deserialize)
+│   ├── script_log_service.rs   # reads/writes run-history JSON files on disk
+│   └── monitor-service.rs      # also appends JSONL snapshot lines
+├── models/               # Domain structs (Serialize/Deserialize) — plain structs, no DB
 │   ├── mod.rs
 │   ├── instance.rs
 │   ├── script.rs
-│   ├── sync-history.rs
+│   ├── script_log.rs     # ScriptLogEntry / ScriptLogSummary
 │   └── metric.rs
-├── ssh/                  # SSH module — zero Tauri dependencies
-│   ├── mod.rs
-│   ├── client.rs         # russh session abstraction
-│   ├── pool.rs           # Per-instance session pool
-│   ├── executor.rs       # Command + script execution
-│   └── sftp.rs           # File upload/download
-└── db/
+└── ssh/                  # SSH module — zero Tauri dependencies
     ├── mod.rs
-    └── migrations/
-        ├── 0001-initial-schema.sql
-        ├── 0002-sync-history.sql
-        └── 0003-metric-snapshots.sql
+    ├── client.rs         # russh session abstraction
+    ├── pool.rs           # Per-instance session pool
+    ├── executor.rs       # Command + script execution
+    └── sftp.rs           # File upload/download
 ```
 
-> ⚠ **Status: aspirational.** The tree above is a target shape — `commands/instances.rs`, the entire `repositories/`, `models/`, `ssh/`, and `db/` trees, and a DB-backed `script-service.rs`/`script-repo.rs` do not exist yet. The real current tree is flat:
+> ⚠ **Status: aspirational.** The tree above is a target shape — `commands/instances.rs`, `commands/script_log.rs`, the entire `models/` and `ssh/` trees, and a `script-service.rs`/`script_log_service.rs` do not exist yet. The real current tree is flat:
 > ```
 > src-tauri/src/
 > ├── main.rs / lib.rs / error.rs / state.rs
 > ├── commands/{monitoring,pty,scripts,ssh}.rs
-> └── services/{monitor_service,pty_service,script_fs_service,ssh_connect}.rs
+> └── services/{monitor_service,pty_service,script_fs_service,script_remote_service,ssh_connect}.rs
 > ```
-> `AppState` (`state.rs`) only holds `pty` and `monitor` — no `db`, no `ssh_pool`. Scripts are local files on disk (`script_fs_service.rs`), not a DB table. The new script-remote-execution service (see "Script Remote Execution" below) is `services/script_remote_service.rs`, a sibling of `ssh_connect.rs` — not a new module under the nonexistent `ssh/` tree.
+> `AppState` (`state.rs`) only holds `pty` and `monitor` — no `db`, no `ssh_pool`. There is no `db` module and never has been — see "Script Run History" and "Monitoring Snapshots" below for why this app has no embedded database at all. Scripts are local files on disk (`script_fs_service.rs`), not a DB table. The script-remote-execution service (see "Script Remote Execution" below) is `services/script_remote_service.rs`, a sibling of `ssh_connect.rs` — not a new module under the nonexistent `ssh/` tree. `commands/instances.rs`, `instance-service.rs`, and `models/instance.rs` describe a still-undecided multi-instance future (today's MVP is single-instance per `spec-navigation.md`) — they're kept in this tree as a placeholder only; what they'd persist to is out of scope for this doc's disk-vs-DB decision and needs its own follow-up.
 
 ### Layer Dependencies (enforced)
 
 ```
-commands → services → repositories → db
-              ↓
-            ssh/
+commands → services → ssh/
 ```
 
-`ssh/` is a leaf module — no imports from other internal modules.
+`ssh/` is a leaf module — no imports from other internal modules. Services that persist data (`script_log_service.rs`, `monitor_service.rs`) read/write plain files directly via `tokio::fs` + `serde_json` — there is no repository/DB layer to go through.
 
 ---
 
@@ -75,11 +63,12 @@ commands → services → repositories → db
 
 ```rust
 pub struct AppState {
-    pub db: Arc<SqlitePool>,
     pub ssh_pool: Arc<Mutex<SshPool>>,
     pub monitor_tasks: Arc<Mutex<MonitorTaskRegistry>>,
 }
 ```
+
+No `db` field — there is no database. `script_log_service.rs` and `monitor_service.rs` resolve their own on-disk paths per call (scripts root for logs, `app_data_dir()` for monitoring) instead of holding a shared handle in state.
 
 Registered in `main.rs` via `.manage(AppState { ... })`. Injected into commands via `State<'_, AppState>`.
 
@@ -105,8 +94,11 @@ pub enum AppError {
     #[error("Script execution failed (exit {exit_code}): {message}")]
     ScriptFailed { exit_code: i32, message: String },
 
-    #[error("Database error: {0}")]
-    DatabaseError(#[from] sqlx::Error),
+    #[error("Failed to write run-history log: {0}")]
+    ScriptLogWriteFailed(String),
+
+    #[error("Failed to read run-history log: {0}")]
+    ScriptLogReadFailed(String),
 
     #[error("I/O error: {0}")]
     IoError(#[from] std::io::Error),
@@ -176,14 +168,17 @@ Remote execution (new — see "Script Remote Execution" under § SSH Module):
 
 There is no `script_run` command — running a script is just `pty_write(...)` against the already-open interactive terminal with the resolved `remote_path`, exactly like typing any other shell command. There is no `script_cancel` command — cancelling is the user pressing Ctrl+C in the terminal, same as cancelling anything else they typed there. The old DB-backed `script_list`/`script_get`/`script_create`/`script_update`/`script_delete`/`script_run`/`script_cancel` commands and the `ScriptSummary`/`Script`/`ScriptRunDto` types they imply are **superseded** — they were never implemented and the feature direction changed; do not implement them.
 
-### Sync History
+### Script Run History
 
-> ⚠ **Status: aspirational, not implemented.** Depends on the `sync_history` table, which is not implemented either (see § SQLite Schema status note) — script-run history is not persisted anywhere today.
+> ⚠ **Status: proposed, not implemented (2026-06-23).** Replaces the old DB-backed "Sync History" design (`sync_history_list`/`sync_history_get` against a `sync_history` table) — superseded along with the rest of the SQLite layer, see § "Script Run History — Disk Format" further down this doc. Today, script-run history is **not persisted anywhere** — output only ever exists in the terminal's xterm scrollback while the session is open.
 
 | Command | Input | Output |
 |---|---|---|
-| `sync_history_list` | `instance_id, page, limit` | `PaginatedHistory` |
-| `sync_history_get` | `id: String` | `SyncHistoryEntry` |
+| `script_log_write` | `ScriptLogWriteDto { script_name, status, started_at, duration_ms, exit_code, output }` | `ScriptLogSummary` |
+| `script_log_list` | `scripts_dir: String` | `Vec<ScriptLogSummary>` — newest first, no `output` field |
+| `script_log_get` | `path: String` | `ScriptLogEntry` — full entry including `output` |
+
+`script_log_write`'s input deliberately omits `triggered_by` — Rust fills it in from the local OS session (`whoami`-equivalent) at write time, see § "Script Run History — Disk Format" below. The frontend assembles everything it can only know from watching the terminal (which script, when it started, how long it took, the exit code parsed from the OSC marker, and the output text accumulated from `pty:data` between start and that marker) and calls `script_log_write` once the run finishes; Rust adds the environment fact (who's running this OS session) and persists. This mirrors `script_fs_*`: the renderer never touches the filesystem directly, only through a typed command.
 
 ### Monitoring
 
@@ -193,6 +188,8 @@ There is no `script_run` command — running a script is just `pty_write(...)` a
 | `monitor_stop` | `instance_id: String` | — |
 | `monitor_get_latest` | `instance_id: String` | `MetricSnapshot` |
 | `monitor_get_history` | `instance_id, from, to` | `Vec<MetricSnapshot>` |
+
+`monitor_get_latest` is served from the live in-memory last sample the polling loop already holds — no disk read. `monitor_get_history` reads the relevant day's JSONL file(s) under `app_data_dir()/monitoring/` and filters by `t >= from && t <= to` — replaces the old SQL range query, see § "Monitoring Snapshots" below. Backs the `monitor.tsx` range tabs (30min/1h/6h/24h), which today just show a "not implemented" toast.
 
 ---
 
@@ -209,77 +206,51 @@ There is no `script_run` command — running a script is just `pty_write(...)` a
 
 ---
 
-## SQLite Schema
+## Script Run History — Disk Format
 
-> ⚠ **Status: aspirational, not implemented.** `sqlx` is a declared dependency (`Cargo.toml`) but nothing in `src-tauri/src/` opens a database, runs a migration, or has a `db` field on `AppState` — there is no SQLite layer today. The connection form lives in `tauri-plugin-store` (`connection-settings.json`) on the frontend; scripts are local files (`script_fs_service.rs`); script-run history is **not persisted anywhere** — output only ever exists in the terminal's xterm scrollback while the session is open. The schema below stays as a possible future direction. In particular, `scripts` (content/description/script_type columns) and all of `sync_history` describe a DB-backed script entity and run-log that the current design (see "Script Remote Execution") does not use — scripts on the remote instance are identified by content hash, not a DB row, and runs are not logged.
+> ⚠ **Status: proposed, not implemented (2026-06-23).** No SQLite, no `sync_history` table — see "SQLite removed, disk-based JSON adopted instead" in `spec-architecture.md` for why. One JSON file per script execution, written by `script_log_service.rs`.
 
-### `0001-initial-schema.sql`
+**Location:** `<scripts_dir>/outputs/`, a subfolder of whichever directory the user has configured as their scripts root (the same `dir_path` already passed to `script_fs_list`/`script_fs_create`). `script_fs_service::list_directory` already filters to `is_file()` and skips subdirectories non-recursively, so `outputs/` is automatically invisible to the script editor's file list — no special-casing needed there.
 
-```sql
-CREATE TABLE instances (
-    id          TEXT PRIMARY KEY,
-    name        TEXT NOT NULL,
-    host        TEXT NOT NULL,
-    port        INTEGER NOT NULL DEFAULT 22,
-    username    TEXT NOT NULL,
-    pem_path    TEXT NOT NULL,
-    tags        TEXT,
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
-);
+**File naming:** `<started_at>__<script_name>.json`, e.g. `2026-06-23T14-32-01Z__deploy.sh.json`. `started_at` uses RFC 3339 with `:` replaced by `-` (colons aren't valid in Windows filenames). Lexicographic filename sort is chronological sort — `script_log_list` just reverses a directory listing, no index file needed.
 
-CREATE TABLE scripts (
-    id          TEXT PRIMARY KEY,
-    instance_id TEXT REFERENCES instances(id) ON DELETE SET NULL,
-    name        TEXT NOT NULL,
-    description TEXT,
-    content     TEXT NOT NULL,
-    script_type TEXT NOT NULL DEFAULT 'sync',
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
-);
+**Shape:**
+
+```json
+{
+  "script_name": "deploy.sh",
+  "triggered_by": "andres.socha",
+  "status": "success",
+  "started_at": "2026-06-23T14:32:01Z",
+  "duration_ms": 4820,
+  "exit_code": 0,
+  "output": "[14:32:01] Iniciando ejecución remota…\n[14:32:09] ✓ Despliegue completado\n"
+}
 ```
 
-### `0002-sync-history.sql`
+`status` is `"success"` if `exit_code == 0`, else `"error"` — matches the two states in the user's ask and the existing mock UI (`src/hooks/use-mock-history.ts`'s `ExecutionResult`, which should be renamed from `'failed'` to `'error'` to match). `triggered_by` is the local OS username (`whoami`-equivalent — e.g. `std::env::var("USERNAME")` on Windows), filled in by `script_log_service.rs` at write time, not sent by the frontend — it describes who has the desktop app open, not which SSH user the script ran as remotely. `output` is the full text accumulated by the frontend from `pty:data` between the run starting and the OSC `DM-DONE` marker (see `spec-terminal.md`); stored inline rather than in a separate file since expected sizes (deploy/backup/health-check scripts) are a few KB, not megabytes — revisit only if that assumption stops holding.
 
-```sql
-CREATE TABLE sync_history (
-    id            TEXT PRIMARY KEY,
-    instance_id   TEXT NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
-    script_id     TEXT REFERENCES scripts(id) ON DELETE SET NULL,
-    script_name   TEXT NOT NULL,
-    triggered_by  TEXT NOT NULL DEFAULT 'manual',
-    status        TEXT NOT NULL,
-    stdout        TEXT,
-    stderr        TEXT,
-    exit_code     INTEGER,
-    started_at    TEXT NOT NULL,
-    finished_at   TEXT,
-    duration_ms   INTEGER
-);
-CREATE INDEX idx-sync-history-instance ON sync_history(instance_id);
-CREATE INDEX idx-sync-history-status ON sync_history(status);
+No retention policy — unlike monitoring snapshots, run history has no natural expiry; it accumulates for as long as the user keeps the scripts directory. Pagination/cleanup is a future concern, not a v1 requirement.
+
+This directly supersedes the Security Model row "Script output | Lives only in the terminal's xterm scrollback... never persisted to disk or logs" (see § Security Model below) — output is now persisted by design.
+
+---
+
+## Monitoring Snapshots
+
+> ⚠ **Status: proposed, not implemented (2026-06-23).** No SQLite, no `metric_snapshots` table. One append-only JSONL (newline-delimited JSON) file per day, written by `monitor_service.rs` itself — not frontend-assembled, since `sample()` already produces a complete `MetricSnapshot` in Rust on every poll tick with no frontend round-trip involved.
+
+**Location:** `app_data_dir()/monitoring/<YYYY-MM-DD>.jsonl` (Tauri's app data dir, not the user's scripts folder — this data isn't tied to where scripts live). One file per calendar day, one line appended per poll tick (every `POLL_INTERVAL` = 2s).
+
+**Line shape** (short keys — this is the highest-frequency data in the app, ~43k lines/day at the current poll interval):
+
+```json
+{"t":"2026-06-23T14:32:00Z","cpu":12.4,"mem_u":812,"mem_t":2048,"disk_u":18,"disk_t":40,"load1":0.42,"load5":0.31,"load15":0.22,"swap_u":0,"swap_t":0,"net_rx":0.012,"net_tx":0.004,"uptime":845221,"proc":134,"conn":18,"temp":52.1}
 ```
 
-### `0003-metric-snapshots.sql`
+Append happens inline in the existing polling loop (`monitor_service.rs`'s `sample()` success branch, right where `monitor:metrics-update` is already emitted) — open in append mode, write the line, no batching needed at a 2s cadence.
 
-```sql
-CREATE TABLE metric_snapshots (
-    id            TEXT PRIMARY KEY,
-    instance_id   TEXT NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
-    cpu_pct       REAL,
-    mem_used_mb   REAL,
-    mem_total_mb  REAL,
-    disk_used_gb  REAL,
-    disk_total_gb REAL,
-    load_avg_1    REAL,
-    sampled_at    TEXT NOT NULL
-);
-CREATE INDEX idx-metric-instance ON metric_snapshots(instance_id);
-CREATE INDEX idx-metric-time ON metric_snapshots(sampled_at);
-```
-
-**Retention policy:** `metric_snapshots` older than 7 days are purged at app startup and every 24h via a `tokio::spawn` background task.
+**Retention policy:** day-files older than 7 days are deleted at app startup and every 24h via the same `tokio::spawn` background task already speced — a filename-date check (`YYYY-MM-DD.jsonl` older than `now - 7d`) instead of a SQL `DELETE WHERE`. At ~43k lines/day and roughly 120-150 bytes/line, a day-file is a few MB — trivial to read fully into memory when `monitor_get_history` needs to filter a window, and the 7-day cap keeps total size bounded to tens of MB regardless of how long the app has been running.
 
 ---
 
@@ -363,15 +334,15 @@ Parsed in `monitor-service.rs`. All metrics obtained via SSH exec — nothing in
 ## App Startup Sequence
 
 ```
-1. Open/create SQLite at Tauri app_data_dir()
-2. Run pending sqlx migrations
-3. Initialize empty SshPool
-4. Initialize empty MonitorTaskRegistry
-5. Purge metric_snapshots older than 7 days (background task)
-6. Restore monitoring for instances flagged as active in previous session
-7. Register all Tauri commands
-8. Open main window
+1. Initialize empty SshPool
+2. Initialize empty MonitorTaskRegistry
+3. Purge monitoring/*.jsonl day-files older than 7 days (background task, see § Monitoring Snapshots)
+4. Restore monitoring for instances flagged as active in previous session
+5. Register all Tauri commands
+6. Open main window
 ```
+
+No database to open and no migrations to run — there is no `db` layer (see § "Script Run History" / "Monitoring Snapshots" above).
 
 ---
 
@@ -379,9 +350,9 @@ Parsed in `monitor-service.rs`. All metrics obtained via SSH exec — nothing in
 
 | Area | Measure |
 |---|---|
-| `.pem` files | Path stored in SQLite; file read in Rust process only — never exposed to renderer |
+| `.pem` files | Path stored via `tauri-plugin-store` (`connection-settings.json`, frontend-managed but disk-backed through the Tauri runtime, not raw renderer FS access); file content read in Rust process only — never exposed to renderer |
 | Passwords | Argon2id hash before storage; never logged |
 | SSH auth | Public key only — no password auth |
 | IPC | Only explicitly registered commands are callable from renderer |
 | Renderer capabilities | Declared per-command in `capabilities/` — minimal surface |
-| Script output | Lives only in the terminal's xterm scrollback for the session — never persisted to disk or logs |
+| Script output | Persisted to a per-run JSON log under `<scripts_dir>/outputs/` (see § "Script Run History — Disk Format") in addition to the terminal's live xterm scrollback — written only by Rust via `script_log_write`, never directly by the renderer |
