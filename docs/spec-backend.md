@@ -167,8 +167,11 @@ Remote execution (new — see "Script Remote Execution" under § SSH Module):
 
 | Command | Input | Output |
 |---|---|---|
-| `script_remote_prepare` | `pem_path, user, host, port, content, content_hash, extension` (flat params, not a wrapped Dto — matches the convention every other real command in this file already uses) | `ScriptRemotePrepareResult { remote_path: String, uploaded: bool }` |
-| `script_remote_delete` | `pem_path, user, host, port, content_hash, extension` | `bool` — whether a remote file actually existed and was removed; `false` is not an error |
+| `script_remote_prepare` | `pem_path, user, host, port, content, file_name` (flat params, not a wrapped Dto — matches the convention every other real command in this file already uses) | `ScriptRemotePrepareResult { remote_path: String, uploaded: bool }` |
+| `script_remote_delete` | `pem_path, user, host, port, file_name` | `bool` — whether a remote file actually existed and was removed; `false` is not an error |
+| `script_remote_rename` | `pem_path, user, host, port, old_file_name, new_file_name` | `bool` — whether a remote file actually existed and was renamed; `false` is not an error |
+
+`script_fs_rename(path, new_name) -> ScriptFileEntry` (local-only, `script_fs_service.rs`) pairs with `script_remote_rename` — the frontend calls the local rename first and only fires the remote one if it succeeds. See "Script Remote Execution" below for why renaming no longer needs any state to decide whether a remote copy exists.
 
 There is no `script_run` command — running a script is just `pty_write(...)` against the already-open interactive terminal with the resolved `remote_path`, exactly like typing any other shell command. There is no `script_cancel` command — cancelling is the user pressing Ctrl+C in the terminal, same as cancelling anything else they typed there. The old DB-backed `script_list`/`script_get`/`script_create`/`script_update`/`script_delete`/`script_run`/`script_cancel` commands and the `ScriptSummary`/`Script`/`ScriptRunDto` types they imply are **superseded** — they were never implemented and the feature direction changed; do not implement them.
 
@@ -199,7 +202,7 @@ There is no `script_run` command — running a script is just `pty_write(...)` a
 | `instance:status-changed` | `{ instanceId, status }` | SSH state transitions |
 | `monitor:metrics-update` | `{ instanceId, snapshot }` | Every poll cycle |
 | `pty:data` | `{ data: String }` | PTY output chunk — also carries script output and its OSC completion marker, see "Script Remote Execution" |
-| `script:upload-progress` | `{ content_hash, percent, bytes_uploaded, total_bytes }` | Emitted per chunk while `script_remote_prepare` is writing the file over its own SFTP side-channel — never on the interactive PTY |
+| `script:upload-progress` | `{ file_name, percent, bytes_uploaded, total_bytes }` | Emitted per chunk while `script_remote_prepare` is writing the file over its own SFTP side-channel — never on the interactive PTY |
 
 `script:output-line`, `script:completed`, and `script:error` are **superseded** — they implied a dedicated streaming channel for script execution that the current design doesn't have. Script output is just more `pty:data`; completion is detected frontend-side by matching the OSC end-marker in that same stream (mirrors how SSH connect/disconnect is already detected in `use-terminal-store.ts`).
 
@@ -304,41 +307,35 @@ Never run a discrete command by typing it into the interactive PTY unless the us
 
 ### Script Remote Execution (side-channel upload + existence check)
 
-> **Status: Part 1 implemented (2026-06-22)** — the upload/verify side-channel below is real (`script_remote_service.rs`). Part 2 — sending the resolved `remote_path` to the interactive terminal — is **not implemented yet**; `script_remote_prepare` returns and stops there. The frontend gates the whole flow on `connection.isOnline` (the same SSH-state the terminal/dashboard already track) *before* even calling the command — if there's no active session, it shows an inline message and never reaches Rust.
+> **Status: Part 1 implemented (2026-06-22, renamed from content-hash to file-name keying same day)** — the upload/verify/rename side-channel below is real (`script_remote_service.rs`). Part 2 — sending the resolved `remote_path` to the interactive terminal — is **not implemented yet**; `script_remote_prepare` returns and stops there. The frontend gates the whole flow on `connection.isOnline` (the same SSH-state the terminal/dashboard already track) *before* even calling the command — if there's no active session, it shows an inline message and never reaches Rust.
 
 New service: `services/script_remote_service.rs` (sibling of `ssh_connect.rs`, not under a `ssh/` module — see Module Structure note above).
+
+**Why file-name keying, not content-hash.** The remote file is named exactly like the local one (`.deploy-monitor/scripts/<file_name>`), not `<sha256(content)><extension>` as an earlier version of this design used. Content-hash naming made "already uploaded" a stateless remote *existence* check, but every edit produced a brand-new remote filename with no link back to the one it superseded — orphans piled up unless something tracked "what was the previous hash for this path" and cleaned it up afterward. That tracking ended up needing a frontend-only manifest (`LazyStore('script-remote-state.json')`) anyway, which reintroduced exactly the statefulness the hash naming was meant to avoid, just relocated to the frontend and prone to silently leaving orphans behind when its fire-and-forget cleanup delete failed. File-name keying sidesteps the whole problem: the local scripts directory is flat and already enforces unique file names (`script_fs_service::create_file` / `rename_file`, both using `create_new(true)` / a pre-rename existence check), so naming the remote file after the local one gives a stable 1:1 identity for free — re-running after an edit overwrites the same remote path instead of minting a new one. There is no manifest anywhere in this flow anymore.
 
 **Flow**, triggered when the user clicks "Ejecutar" on a script open in the Scripts editor:
 
 1. Frontend checks `connection.isOnline` — if false, shows "Debes conectarte a la instancia por SSH antes de ejecutar un script." and stops; no Tauri call is made.
-2. If the file is dirty, frontend auto-saves it first (`save()`), so the hash always reflects what's currently in the editor.
-3. Frontend computes `content_hash` — SHA-256 of the script's current content, hex-encoded, via the Web Crypto API (`crypto.subtle.digest('SHA-256', ...)`). This never touches Rust — no new dependency needed for hashing.
-4. Frontend calls `script_remote_prepare(pem_path, user, host, port, content, content_hash, extension)` — `extension` is the local file's own extension (e.g. `.py`, `.sh`), **not** hardcoded to `.sh` as an earlier draft of this section said; the remote filename mirrors the local one so non-bash scripts don't end up misnamed ahead of Part 2's execution step.
-5. Rust opens one short-lived `connect_authenticated(...)` session (same helper `ssh_test_connection` uses), then a **single SFTP subsystem channel** on it (`channel.request_subsystem(true, "sftp")` + `russh_sftp::client::SftpSession::new(channel.into_stream())`) — existence-check, upload, and verification all happen over that one channel, simpler than the two-channel (exec + SFTP) split an earlier draft described:
+2. If the file is dirty, frontend auto-saves it first (`save()`).
+3. Frontend calls `script_remote_prepare(pem_path, user, host, port, content, file_name)` — `file_name` is the local file's own name including its extension (e.g. `deploy.sh`), used verbatim as the remote filename.
+4. Rust opens one short-lived `connect_authenticated(...)` session (same helper `ssh_test_connection` uses), then a **single SFTP subsystem channel** on it (`channel.request_subsystem(true, "sftp")` + `russh_sftp::client::SftpSession::new(channel.into_stream())`) — existence-check, upload, and verification all happen over that one channel:
    a. `mkdir` (idempotent — ignore errors) for `.deploy-monitor` and `.deploy-monitor/scripts`, **relative** to the SFTP session's default cwd. Never a literal `~/...` — the SFTP protocol does not shell-expand `~`.
-   b. `sftp.metadata(remote_path)`: if it already exists and its size matches `content.len()`, skip the upload (`uploaded = false`) — stateless check, no local cache.
+   b. `sftp.metadata(remote_path)`: if it already exists and its size matches `content.len()`, skip the upload (`uploaded = false`) — a byte-length check, not a content comparison; same approximation as before, unaffected by the naming change.
    c. Otherwise, write the content in ~32 KiB chunks, emitting `script:upload-progress` after each chunk, then re-`metadata()` the path and compare size again — this is the "verify it actually landed correctly" step. Mismatch → `RemoteCheckFailed`.
    d. Sets the file executable (`0o755`) via `sftp.set_metadata(...)`.
    e. Disconnects.
-6. Returns `{ remote_path: ".deploy-monitor/scripts/<content_hash><extension>", uploaded: bool }` to the frontend.
-7. *(Part 2, not implemented)* Frontend sends **one line** to the already-open interactive terminal — `pty_write` with something like `bash <remote_path>; printf '\033]633;DM-DONE;%s\007' "$?"\r`.
+5. Returns `{ remote_path: ".deploy-monitor/scripts/<file_name>", uploaded: bool }` to the frontend.
+6. *(Part 2, not implemented)* Frontend sends **one line** to the already-open interactive terminal — `pty_write` with something like `bash <remote_path>; printf '\033]633;DM-DONE;%s\007' "$?"\r`.
 
-**Why content-hash naming:** it makes "already uploaded" a stateless remote *existence* check — no backend cache, no manifest, no extra `AppState` field; this is still 100% true today, `script_remote_prepare` never consults any local record to decide whether to upload. Editing the script changes its hash, so the next run naturally re-uploads without any explicit invalidation logic.
+**Local rename stays in sync.** Double-clicking a script's name in the Scripts list (`scripts.tsx`'s `ScriptListItem`) renames it in place via `script_fs_rename(path, new_name)`. On success, the frontend fires `script_remote_rename(pem_path, user, host, port, old_file_name, new_file_name)` — fire-and-forget, same pattern as delete cleanup below. Both `script_remote_delete` and `script_remote_rename` treat "the old file was never uploaded" as `Ok(false)`, not an error, so the frontend never needs to track or ask whether a remote copy exists before calling them. `rename_remote` clears anything already sitting at the destination name first, since SFTP `rename` fails if the destination exists (e.g. a leftover from a since-deleted script that once had that name).
 
-**Stale version cleanup (frontend-only, added 2026-06-22).** The flip side of content-hash naming: editing a script and re-running it uploads a *new* hash-named file but has no way to know which *old* hash-named file it superseded — the remote filename carries no link back to "which local script this was." Without bookkeeping, every edit-then-run leaves the previous version permanently orphaned on the instance.
-
-Fixed with a small frontend-only manifest — `use-script-remote.ts`, `LazyStore('script-remote-state.json')`, mapping local `path -> { contentHash, extension }` (the version last confirmed live on the remote for that path). This is deliberately *not* backend/AppState state — it is bookkeeping for cleanup only, not part of the upload/exists check, so the stateless-check property above is unaffected:
-- On every successful `script_remote_prepare`, the previous tracked state for that path (if any and if different) is deleted from the instance via `script_remote_delete`, fire-and-forget, then the manifest entry is updated to the new `{contentHash, extension}`.
-- Before deleting a stale entry, the manifest is scanned (`entries()`) for any *other* path still pointing at that same `{contentHash, extension}` — two different local scripts can have byte-identical content and legitimately share one remote file; cleanup only fires once nothing references it anymore.
-- On local script deletion, `cleanupRemoteCopy` removes the manifest entry and (same shared-reference guard) deletes the corresponding remote file — preferring the tracked state over re-reading/re-hashing the local file, falling back to a `script_fs_read` + hash only for paths uploaded before this manifest existed.
-- All of the above is fire-and-forget for the actual network delete — local save/delete is never held up waiting on the instance, which was the explicit reason for choosing a small persisted "previous version pointer" over (a) hashing-on-every-save (`spec` originally rejected this; needless requests) or (b) no bookkeeping at all (orphans accumulate forever).
-
-`script_remote_delete(pem_path, user, host, port, content_hash, extension) -> bool` shares `open_sftp_session`/`close_sftp_session` with `prepare` and removes `.deploy-monitor/scripts/<content_hash><extension>` if present (a no-op, `false`, if it was never uploaded).
+`script_remote_delete(pem_path, user, host, port, file_name) -> bool` and `script_remote_rename(pem_path, user, host, port, old_file_name, new_file_name) -> bool` share `open_sftp_session`/`close_sftp_session` with `prepare`.
 
 **`AppError` variants** (`error.rs`):
 - `ScriptUploadFailed(String)` → `SCRIPT_UPLOAD_FAILED`
 - `RemoteCheckFailed(String)` → `REMOTE_CHECK_FAILED`
 - `RemoteDeleteFailed(String)` → `REMOTE_DELETE_FAILED`
+- `RemoteRenameFailed(String)` → `REMOTE_RENAME_FAILED`
 
 Connection-level failures reuse the existing `SshHostUnreachable` / `SshTimeout` / `SshAuthFailed` / `SshConnectionFailed` variants — `connect_authenticated` already returns those.
 

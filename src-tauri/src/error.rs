@@ -79,6 +79,9 @@ pub enum AppError {
 
     #[error("Failed to delete remote script: {0}")]
     RemoteDeleteFailed(String),
+
+    #[error("Failed to rename remote script: {0}")]
+    RemoteRenameFailed(String),
 }
 
 impl Serialize for AppError {
@@ -112,6 +115,7 @@ impl Serialize for AppError {
             AppError::ScriptUploadFailed(msg) => ("SCRIPT_UPLOAD_FAILED", msg.clone()),
             AppError::RemoteCheckFailed(msg) => ("REMOTE_CHECK_FAILED", msg.clone()),
             AppError::RemoteDeleteFailed(msg) => ("REMOTE_DELETE_FAILED", msg.clone()),
+            AppError::RemoteRenameFailed(msg) => ("REMOTE_RENAME_FAILED", msg.clone()),
         };
         let mut state = serializer.serialize_struct("AppError", 2)?;
         state.serialize_field("code", code)?;

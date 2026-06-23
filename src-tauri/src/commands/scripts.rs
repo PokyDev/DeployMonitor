@@ -32,23 +32,28 @@ pub async fn script_fs_delete(path: String) -> Result<(), AppError> {
     script_fs_service::delete_file(&path).await
 }
 
+/// Renames a local script file in place (same directory). The frontend pairs
+/// this with `script_remote_rename` to keep an already-uploaded copy in sync.
+#[tauri::command]
+pub async fn script_fs_rename(
+    path: String,
+    new_name: String,
+) -> Result<script_fs_service::ScriptFileEntry, AppError> {
+    script_fs_service::rename_file(&path, &new_name).await
+}
+
 /// Side-channel existence-check + SFTP upload for remote script execution —
 /// never touches the interactive PTY (see `spec-terminal.md` § "Architecture
 /// Decision: script execution stays on the interactive channel"). Sending the
 /// resolved `remote_path` to the terminal is a separate, not-yet-implemented step.
 #[tauri::command]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "Tauri command signatures are generated"
-)]
 pub async fn script_remote_prepare(
     pem_path: String,
     user: String,
     host: String,
     port: Option<u16>,
     content: String,
-    content_hash: String,
-    extension: String,
+    file_name: String,
     app: AppHandle,
 ) -> Result<ScriptRemotePrepareResult, AppError> {
     script_remote_service::prepare(
@@ -57,8 +62,7 @@ pub async fn script_remote_prepare(
         &host,
         port.unwrap_or(22),
         &content,
-        &content_hash,
-        &extension,
+        &file_name,
         app,
     )
     .await
@@ -72,16 +76,31 @@ pub async fn script_remote_delete(
     user: String,
     host: String,
     port: Option<u16>,
-    content_hash: String,
-    extension: String,
+    file_name: String,
 ) -> Result<bool, AppError> {
-    script_remote_service::delete_remote(
+    script_remote_service::delete_remote(&pem_path, &user, &host, port.unwrap_or(22), &file_name)
+        .await
+}
+
+/// Best-effort remote rename, called alongside a local script rename. A
+/// `false` result means the script was never uploaded — not an error, and the
+/// frontend doesn't need to know in advance whether a remote copy exists.
+#[tauri::command]
+pub async fn script_remote_rename(
+    pem_path: String,
+    user: String,
+    host: String,
+    port: Option<u16>,
+    old_file_name: String,
+    new_file_name: String,
+) -> Result<bool, AppError> {
+    script_remote_service::rename_remote(
         &pem_path,
         &user,
         &host,
         port.unwrap_or(22),
-        &content_hash,
-        &extension,
+        &old_file_name,
+        &new_file_name,
     )
     .await
 }

@@ -5,6 +5,7 @@ import {
   scriptFsDelete,
   scriptFsList,
   scriptFsRead,
+  scriptFsRename,
   scriptFsWrite,
   type ScriptFileEntry,
 } from '../lib/tauri-commands';
@@ -67,6 +68,9 @@ export function useScriptFiles() {
   const [createError, setCreateError] = useState<string | null>(null);
 
   const [pendingDeletePath, setPendingDeletePath] = useState<string | null>(null);
+
+  const [renamingPath, setRenamingPath] = useState<string | null>(null);
+  const [renameError, setRenameError] = useState<string | null>(null);
 
   // Tracks which file's content is the "current" one, so a slow read that
   // resolves after the user has already switched/deselected can be told
@@ -225,6 +229,41 @@ export function useScriptFiles() {
     [directoryPath, refreshFiles, cancelCreate],
   );
 
+  // Only one rename in flight at a time — requesting another replaces it.
+  const startRename = useCallback((path: string) => {
+    setRenameError(null);
+    setRenamingPath(path);
+  }, []);
+
+  const cancelRename = useCallback(() => {
+    setRenamingPath(null);
+    setRenameError(null);
+  }, []);
+
+  // Renames the local file and, on success, updates `selected`/`files` to
+  // point at the new path so the editor doesn't lose track of the open file.
+  // Throws on failure (after recording `renameError`) so the caller can
+  // decide whether to skip syncing the rename to the instance.
+  const confirmRename = useCallback(
+    async (path: string, newName: string) => {
+      try {
+        const entry = await scriptFsRename(path, newName);
+        setRenamingPath(null);
+        setRenameError(null);
+        await refreshFiles(directoryPath);
+        if (selectedPathRef.current === path) {
+          selectedPathRef.current = entry.path;
+          setSelected(entry);
+        }
+        return entry;
+      } catch (err) {
+        setRenameError(errorMessage(err));
+        throw err;
+      }
+    },
+    [directoryPath, refreshFiles],
+  );
+
   // Confirmation is owned by the UI (DeleteConfirmCard) — this only runs the
   // actual deletion once the user has confirmed. Failures (e.g. permissions,
   // already gone) are logged rather than thrown further, since there's no
@@ -284,5 +323,10 @@ export function useScriptFiles() {
     pendingDeletePath,
     requestDelete,
     cancelPendingDelete,
+    renamingPath,
+    renameError,
+    startRename,
+    confirmRename,
+    cancelRename,
   };
 }

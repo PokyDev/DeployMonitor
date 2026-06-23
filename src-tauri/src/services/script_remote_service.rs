@@ -25,7 +25,7 @@ pub struct ScriptRemotePrepareResult {
 
 #[derive(Clone, Serialize)]
 struct UploadProgressPayload {
-    content_hash: String,
+    file_name: String,
     percent: f32,
     bytes_uploaded: u64,
     total_bytes: u64,
@@ -35,8 +35,15 @@ fn map_sftp_error(context: &str, err: SftpError) -> AppError {
     AppError::ScriptUploadFailed(format!("{context}: {err}"))
 }
 
-fn remote_script_path(content_hash: &str, extension: &str) -> String {
-    format!("{REMOTE_SCRIPTS_DIR}/{content_hash}{extension}")
+/// The remote file is named exactly like the local one. The local scripts
+/// directory is flat and already enforces unique file names
+/// (`script_fs_service::create_file` / `rename_file`), so this is a stable,
+/// collision-free remote identity that survives content edits — unlike the
+/// old content-hash naming, which minted a brand-new remote file on every
+/// edit and needed a separate cleanup pass to avoid orphaning the previous
+/// one. See `spec-backend.md` § "Script Remote Execution".
+fn remote_script_path(file_name: &str) -> String {
+    format!("{REMOTE_SCRIPTS_DIR}/{file_name}")
 }
 
 /// Opens one short-lived authenticated session (same helper `ssh_test_connection`
@@ -74,22 +81,17 @@ async fn close_sftp_session(handle: Handle<SshHandler>, sftp: &SftpSession) {
         .await;
 }
 
-/// Checks whether `content_hash<extension>` already exists on the instance
-/// (stateless — no local cache, no manifest) and uploads it via SFTP if not,
-/// emitting `script:upload-progress` as it goes. Verifies the remote file's
-/// size afterward before returning.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "mirrors the flat-parameter Tauri command it backs"
-)]
+/// Checks whether a file named `file_name` already exists on the instance
+/// with matching content length and uploads it via SFTP if not, emitting
+/// `script:upload-progress` as it goes. Verifies the remote file's size
+/// afterward before returning.
 pub async fn prepare(
     pem_path: &str,
     user: &str,
     host: &str,
     port: u16,
     content: &str,
-    content_hash: &str,
-    extension: &str,
+    file_name: &str,
     app: AppHandle,
 ) -> Result<ScriptRemotePrepareResult, AppError> {
     let (handle, sftp) = open_sftp_session(pem_path, user, host, port).await?;
@@ -101,7 +103,7 @@ pub async fn prepare(
 
     let content_bytes = content.as_bytes();
     let total_bytes = content_bytes.len() as u64;
-    let remote_path = remote_script_path(content_hash, extension);
+    let remote_path = remote_script_path(file_name);
 
     let already_present = match sftp.metadata(remote_path.as_str()).await {
         Ok(meta) => meta.len() == total_bytes,
@@ -127,7 +129,7 @@ pub async fn prepare(
             let _ = app.emit(
                 "script:upload-progress",
                 UploadProgressPayload {
-                    content_hash: content_hash.to_string(),
+                    file_name: file_name.to_string(),
                     percent,
                     bytes_uploaded,
                     total_bytes,
@@ -167,21 +169,20 @@ pub async fn prepare(
     })
 }
 
-/// Removes `content_hash<extension>` from the instance if present — a no-op
-/// (returns `Ok(false)`) when it was never uploaded there. Called as a
-/// best-effort cleanup alongside local script deletion; the caller does not
-/// block local deletion on this succeeding.
+/// Removes `file_name` from the instance if present — a no-op (returns
+/// `Ok(false)`) when it was never uploaded there. Called as a best-effort
+/// cleanup alongside local script deletion; the caller does not block local
+/// deletion on this succeeding.
 pub async fn delete_remote(
     pem_path: &str,
     user: &str,
     host: &str,
     port: u16,
-    content_hash: &str,
-    extension: &str,
+    file_name: &str,
 ) -> Result<bool, AppError> {
     let (handle, sftp) = open_sftp_session(pem_path, user, host, port).await?;
 
-    let remote_path = remote_script_path(content_hash, extension);
+    let remote_path = remote_script_path(file_name);
 
     let existed = match sftp.metadata(remote_path.as_str()).await {
         Ok(_) => true,
@@ -193,6 +194,46 @@ pub async fn delete_remote(
         sftp.remove_file(remote_path.as_str()).await.map_err(|e| {
             AppError::RemoteDeleteFailed(format!("no se pudo eliminar el script remoto: {e}"))
         })?;
+    }
+
+    close_sftp_session(handle, &sftp).await;
+
+    Ok(existed)
+}
+
+/// Renames `old_file_name` to `new_file_name` on the instance if the old one
+/// is present — a no-op (returns `Ok(false)`) when the script was never
+/// uploaded there, so the frontend can call this unconditionally on every
+/// local rename without first having to know whether a remote copy exists.
+/// If something is already sitting at `new_file_name` (e.g. a leftover from a
+/// since-deleted script that once had this name), it's cleared first — SFTP
+/// `rename` fails if the destination already exists.
+pub async fn rename_remote(
+    pem_path: &str,
+    user: &str,
+    host: &str,
+    port: u16,
+    old_file_name: &str,
+    new_file_name: &str,
+) -> Result<bool, AppError> {
+    let (handle, sftp) = open_sftp_session(pem_path, user, host, port).await?;
+
+    let old_path = remote_script_path(old_file_name);
+    let new_path = remote_script_path(new_file_name);
+
+    let existed = match sftp.metadata(old_path.as_str()).await {
+        Ok(_) => true,
+        Err(SftpError::Status(s)) if s.status_code == StatusCode::NoSuchFile => false,
+        Err(e) => return Err(map_sftp_error("no se pudo verificar el script remoto", e)),
+    };
+
+    if existed {
+        let _ = sftp.remove_file(new_path.as_str()).await;
+        sftp.rename(old_path.as_str(), new_path.as_str())
+            .await
+            .map_err(|e| {
+                AppError::RemoteRenameFailed(format!("no se pudo renombrar el script remoto: {e}"))
+            })?;
     }
 
     close_sftp_session(handle, &sftp).await;

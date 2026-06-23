@@ -110,6 +110,11 @@ export async function scriptFsDelete(path: string): Promise<void> {
   await invoke('script_fs_delete', { path });
 }
 
+/** Renames a file in place (same directory). Throws { code, message } on failure (e.g. already exists). */
+export async function scriptFsRename(path: string, newName: string): Promise<ScriptFileEntry> {
+  return await invoke<ScriptFileEntry>('script_fs_rename', { path, newName });
+}
+
 export type ScriptRemotePrepareResult = {
   remote_path: string;
   uploaded: boolean;
@@ -117,14 +122,14 @@ export type ScriptRemotePrepareResult = {
 
 /** Payload of the `script:upload-progress` event emitted while `scriptRemotePrepare` is uploading. */
 export type ScriptUploadProgress = {
-  content_hash: string;
+  file_name: string;
   percent: number;
   bytes_uploaded: number;
   total_bytes: number;
 };
 
 /**
- * Checks whether a script (identified by `contentHash`) already exists on the
+ * Checks whether a script (identified by its file name) already exists on the
  * instance and uploads it via SFTP over a one-off side-channel session if not —
  * never touches the interactive terminal. Throws { code, message } on failure
  * (e.g. SSH_HOST_UNREACHABLE, SCRIPT_UPLOAD_FAILED, REMOTE_CHECK_FAILED).
@@ -135,8 +140,7 @@ export async function scriptRemotePrepare(
   host: string,
   port: number | undefined,
   content: string,
-  contentHash: string,
-  extension: string,
+  fileName: string,
 ): Promise<ScriptRemotePrepareResult> {
   return await invoke<ScriptRemotePrepareResult>('script_remote_prepare', {
     pemPath,
@@ -144,8 +148,7 @@ export async function scriptRemotePrepare(
     host,
     port: port ?? null,
     content,
-    contentHash,
-    extension,
+    fileName,
   });
 }
 
@@ -159,15 +162,36 @@ export async function scriptRemoteDelete(
   user: string,
   host: string,
   port: number | undefined,
-  contentHash: string,
-  extension: string,
+  fileName: string,
 ): Promise<boolean> {
   return await invoke<boolean>('script_remote_delete', {
     pemPath,
     user,
     host,
     port: port ?? null,
-    contentHash,
-    extension,
+    fileName,
+  });
+}
+
+/**
+ * Best-effort remote rename, called alongside a local script rename. Returns
+ * `false` (not an error) if the script was never uploaded. Throws
+ * { code, message } on a real failure (e.g. SSH_HOST_UNREACHABLE, REMOTE_RENAME_FAILED).
+ */
+export async function scriptRemoteRename(
+  pemPath: string,
+  user: string,
+  host: string,
+  port: number | undefined,
+  oldFileName: string,
+  newFileName: string,
+): Promise<boolean> {
+  return await invoke<boolean>('script_remote_rename', {
+    pemPath,
+    user,
+    host,
+    port: port ?? null,
+    oldFileName,
+    newFileName,
   });
 }

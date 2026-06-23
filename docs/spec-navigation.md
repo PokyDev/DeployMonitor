@@ -182,7 +182,7 @@ Hostname · connection badge (pulse if connected) · Connect/Disconnect button �
 User clicks Execute
   → gated on connection.isOnline; if disconnected, shows an inline message and stops here
   → invoke('script_remote_prepare')        (side-channel: one russh + SFTP session, invisible to the user)
-      → checks .deploy-monitor/scripts/<content-hash><extension> on the instance
+      → checks .deploy-monitor/scripts/<file-name> on the instance
       → uploads it via SFTP only if missing, then verifies it landed correctly
   → (not yet implemented) frontend sends ONE line to the already-open interactive terminal:
       pty_write("bash <remote_path>; <OSC end-marker>")

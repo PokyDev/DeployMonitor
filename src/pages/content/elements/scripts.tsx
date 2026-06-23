@@ -105,7 +105,48 @@ function CodeEditor({ value, onChange }: { value: string; onChange: (value: stri
   );
 }
 
-function ScriptListItem({ script, active, onSelect, onContextMenu, itemRef }: { script: ScriptFileEntry; active: boolean; onSelect: () => void; onContextMenu: (e: React.MouseEvent) => void; itemRef?: React.Ref<HTMLDivElement> }) {
+/** Double-click on the name swaps it for an inline input — same "commit on
+ * blur/Enter, cancel on Escape/empty" idiom as `NewFileCard`'s input, just
+ * editing an existing name instead of creating one. */
+function ScriptListItem({
+  script,
+  active,
+  renaming,
+  renameError,
+  onSelect,
+  onContextMenu,
+  onStartRename,
+  onConfirmRename,
+  onCancelRename,
+  itemRef,
+}: {
+  script: ScriptFileEntry;
+  active: boolean;
+  renaming: boolean;
+  renameError: string | null;
+  onSelect: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+  onStartRename: () => void;
+  onConfirmRename: (newName: string) => void;
+  onCancelRename: () => void;
+  itemRef?: React.Ref<HTMLDivElement>;
+}) {
+  const [value, setValue] = useState(script.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!renaming) return;
+    setValue(script.name);
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [renaming, script.name]);
+
+  const commit = () => {
+    const trimmed = value.trim();
+    if (trimmed && trimmed !== script.name) onConfirmRename(trimmed);
+    else onCancelRename();
+  };
+
   return (
     <div
       ref={itemRef}
@@ -113,14 +154,32 @@ function ScriptListItem({ script, active, onSelect, onContextMenu, itemRef }: { 
       tabIndex={0}
       className={`scripts-item${active ? ' scripts-item--active' : ''}`}
       onClick={(e) => { e.stopPropagation(); onSelect(); }}
+      onDoubleClick={(e) => { e.stopPropagation(); onStartRename(); }}
       onContextMenu={onContextMenu}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect(); }}
     >
       <div className="scripts-item__top">
         <FileCode size={15} strokeWidth={1.5} className="scripts-item__icon" aria-hidden="true" />
-        <span className="scripts-item__name">{script.name}</span>
+        {renaming ? (
+          <input
+            ref={inputRef}
+            className="scripts-item__name-input"
+            value={value}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => setValue(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); commit(); }
+              if (e.key === 'Escape') { e.preventDefault(); onCancelRename(); }
+            }}
+            spellCheck={false}
+          />
+        ) : (
+          <span className="scripts-item__name">{script.name}</span>
+        )}
       </div>
       <div className="scripts-item__path">{script.path}</div>
+      {renaming && renameError && <div className="scripts-item__error">{renameError}</div>}
     </div>
   );
 }
@@ -477,10 +536,32 @@ export default function Scripts({ scripts, connection }: ScriptsProps) {
     pendingDeletePath,
     requestDelete,
     cancelPendingDelete,
+    renamingPath,
+    renameError,
+    startRename,
+    confirmRename,
+    cancelRename,
   } = scripts;
 
-  const { status: actionStatus, executeScript, dismissStatus, cleanupRemoteCopy } =
-    useScriptRemote(connection);
+  const {
+    status: actionStatus,
+    executeScript,
+    dismissStatus,
+    cleanupRemoteCopy,
+    renameRemoteCopy,
+  } = useScriptRemote(connection);
+
+  // Local rename is committed first; the remote copy (if any — see
+  // `renameRemoteCopy`, a no-op when the script was never uploaded) is only
+  // synced once the local rename actually succeeds.
+  const handleConfirmRename = async (script: ScriptFileEntry, newName: string) => {
+    try {
+      await confirmRename(script.path, newName);
+      renameRemoteCopy(script.name, newName);
+    } catch {
+      // confirmRename already recorded renameError for the UI.
+    }
+  };
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
@@ -494,14 +575,11 @@ export default function Scripts({ scripts, connection }: ScriptsProps) {
     itemRefs.current.get(path)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   };
 
-  // Best-effort remote cleanup runs first so it can resolve the file's
-  // tracked remote state before local deletion removes it from disk — the
-  // actual network round-trip then continues in the background (see
-  // `cleanupRemoteCopy`), so this never delays the local delete on the SSH
-  // round-trip itself.
-  const handleConfirmDelete = async (path: string) => {
+  // Remote cleanup is fire-and-forget (see `cleanupRemoteCopy`) and never
+  // delays the local delete on the SSH round-trip.
+  const handleConfirmDelete = (path: string) => {
     const script = files.find((f) => f.path === path);
-    if (script) await cleanupRemoteCopy(script);
+    if (script) cleanupRemoteCopy(script);
     void deleteFile(path);
   };
 
@@ -581,11 +659,16 @@ export default function Scripts({ scripts, connection }: ScriptsProps) {
                   <ScriptListItem
                     script={script}
                     active={script.path === selected?.path}
+                    renaming={renamingPath === script.path}
+                    renameError={renamingPath === script.path ? renameError : null}
                     onSelect={() => selectFile(script.path)}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       setContextMenu({ x: e.clientX, y: e.clientY, path: script.path });
                     }}
+                    onStartRename={() => startRename(script.path)}
+                    onConfirmRename={(newName) => void handleConfirmRename(script, newName)}
+                    onCancelRename={cancelRename}
                     itemRef={(el) => {
                       if (el) itemRefs.current.set(script.path, el);
                       else itemRefs.current.delete(script.path);

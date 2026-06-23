@@ -100,6 +100,50 @@ pub async fn create_file(dir: &str, file_name: &str) -> Result<ScriptFileEntry, 
     })
 }
 
+/// Validates `new_name` and renames a file to it, keeping it in the same
+/// directory it's already in. Same name rules as `create_file` (non-empty, no
+/// path separators/`..`), plus `FileAlreadyExists` if a file with the new name
+/// is already there.
+pub async fn rename_file(path: &str, new_name: &str) -> Result<ScriptFileEntry, AppError> {
+    let trimmed = new_name.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::InvalidFileName(
+            "el nombre no puede estar vacío".to_string(),
+        ));
+    }
+    if trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains("..") {
+        return Err(AppError::InvalidFileName(trimmed.to_string()));
+    }
+
+    let old_path = Path::new(path);
+    let dir = old_path.parent().unwrap_or_else(|| Path::new(""));
+    let new_path: PathBuf = dir.join(trimmed);
+
+    if new_path == old_path {
+        return Ok(ScriptFileEntry {
+            name: trimmed.to_string(),
+            path: new_path.to_string_lossy().into_owned(),
+        });
+    }
+
+    if fs::try_exists(&new_path).await.unwrap_or(false) {
+        return Err(AppError::FileAlreadyExists(trimmed.to_string()));
+    }
+
+    fs::rename(old_path, &new_path).await.map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            AppError::FileNotFound(path.to_string())
+        } else {
+            AppError::FileWriteFailed(e.to_string())
+        }
+    })?;
+
+    Ok(ScriptFileEntry {
+        name: trimmed.to_string(),
+        path: new_path.to_string_lossy().into_owned(),
+    })
+}
+
 /// Permanently deletes a file. No trash/recycle bin — the caller (UI) owns
 /// any confirmation step.
 pub async fn delete_file(path: &str) -> Result<(), AppError> {

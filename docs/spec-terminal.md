@@ -50,7 +50,7 @@ Both output events feed the same `xterm.js` `Terminal` instance (see decision be
 **Decision:** Running a script does not open a second terminal, a read-only output viewer, or a separate PTY/exec channel for its output. The already-open interactive terminal (local PTY → `ssh` subprocess, see the status note under "Backend: SSH Terminal" below) is the only place script output is ever rendered. The backend only ever writes **one line** to that PTY to start a run — a plain shell command referencing a file that is already sitting on the remote instance, e.g.:
 
 ```
-bash ~/.deploy-monitor/scripts/<content-hash>.sh; printf '\033]633;DM-DONE;%s\007' "$?"
+bash ~/.deploy-monitor/scripts/<file-name>; printf '\033]633;DM-DONE;%s\007' "$?"
 ```
 
 Everything needed *before* that line is sent — checking whether the script already exists on the instance, and uploading it if not — happens over a separate, invisible side-channel: a short-lived authenticated `russh` session opened the same way `monitor_service.rs` already does for metrics polling (`connect_authenticated` + exec channel / SFTP). That side-channel never emits `pty:data` and never touches xterm.js. See `spec-backend.md` § "Script Remote Execution" for the Rust-side design.
