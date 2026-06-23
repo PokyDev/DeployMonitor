@@ -232,6 +232,94 @@
   animation-play-state: paused;
 }
 
+/* ── Inline feedback for "Ejecutar" — uploading progress, then a success/error
+   message. Same mount/open/close grid trick as .scripts-delete-confirm above
+   (rendered as the next sibling of the active file's card), but with no
+   confirm/cancel pair. `--uploading`'s fill width is driven live from React
+   state (no keyframe); `--success`/`--error` reuse the delete card's own
+   countdown keyframe at 5s instead of 10s. ── */
+.scripts-action-status {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--duration-slow) var(--ease-out);
+}
+
+.scripts-action-status--open {
+  grid-template-rows: 1fr;
+}
+
+.scripts-action-status__inner {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  border: 1px solid var(--border-default);
+  border-left: 2px solid var(--color-gold);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity var(--duration-slow) var(--ease-out), transform var(--duration-slow) var(--ease-out);
+}
+
+.scripts-action-status--open .scripts-action-status__inner {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.scripts-action-status--success .scripts-action-status__inner {
+  border-left-color: var(--color-success-light);
+}
+
+.scripts-action-status--error .scripts-action-status__inner {
+  border-left-color: var(--color-error-light);
+}
+
+.scripts-action-status__text {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.scripts-action-status__progress {
+  height: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+.scripts-action-status__progress-fill {
+  height: 100%;
+  width: 100%;
+  background: var(--color-gold);
+  transform-origin: left;
+}
+
+/* Width is set inline from the live upload percent (see scripts.tsx) —
+   only the transition lives in CSS, so each progress event animates smoothly
+   instead of jumping. */
+.scripts-action-status--uploading .scripts-action-status__progress-fill {
+  transition: width 150ms var(--ease-out);
+}
+
+.scripts-action-status--success .scripts-action-status__progress-fill {
+  background: var(--color-success-light);
+  animation: scripts-delete-countdown 5s linear forwards;
+}
+
+.scripts-action-status--error .scripts-action-status__progress-fill {
+  background: var(--color-error-light);
+  animation: scripts-delete-countdown 5s linear forwards;
+}
+
+/* Paused on hover, same reasoning as the delete countdown above. */
+.scripts-action-status:hover .scripts-action-status__progress-fill {
+  animation-play-state: paused;
+}
+
 /* ── Crossfade — see CrossfadeSwap. Shared fade+slide applied to two
    different layout contexts: .scripts-pane (the empty-state ↔ editor slot,
    a column flex filling .scripts-right) and .scripts-editor__body (the

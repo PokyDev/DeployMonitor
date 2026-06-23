@@ -101,31 +101,35 @@ pub ssh_pool: Arc<Mutex<SshPool>>,
 ```rust
 // CORRECT — thin command
 #[tauri::command]
-async fn script_run(dto: ScriptRunDto, state: State<'_, AppState>) -> Result<String, String> {
-    state.script_service.run(dto).await.map_err(|e| e.to_frontend_error())
+async fn script_remote_prepare(dto: ScriptRemotePrepareDto) -> Result<ScriptRemotePrepareResult, String> {
+    script_remote_service::prepare(dto).await.map_err(|e| e.to_frontend_error())
 }
 
 // WRONG — business logic in command
 #[tauri::command]
-async fn script_run(dto: ScriptRunDto, state: State<'_, AppState>) -> Result<String, String> {
-    let session = state.ssh_pool.lock().unwrap().get(&dto.instance_id)?;
-    // ... 50 lines of SSH logic ...
+async fn script_remote_prepare(dto: ScriptRemotePrepareDto) -> Result<ScriptRemotePrepareResult, String> {
+    let handle = connect_authenticated(&dto.pem_path, &dto.user, &dto.host, dto.port).await?;
+    // ... 50 lines of SFTP/exec logic ...
 }
 ```
 
-`ssh/` module has zero Tauri imports. It is a pure Rust library.
+`ssh/` module (aspirational, not yet created — today this logic lives in `services/ssh_connect.rs` and `services/monitor_service.rs`, called directly from `commands/`) has zero Tauri imports. It is meant to be a pure Rust library.
 
 ---
 
 ## SSH Channel Rules
 
 ```
-Interactive terminal → PTY + shell channel (one per session)
-Discrete commands    → exec channel (one per command, never reused)
-Script execution     → exec channel with streaming output callback
+Interactive terminal → local PTY (portable-pty) running `ssh` as a subprocess — not a russh
+                        channel today (see spec-terminal.md status note)
+Discrete commands    → russh exec channel, one per command, never reused
+                        (monitor_service.rs is the reference)
+Script execution     → stays on the interactive channel as a single plain command line —
+                        no payload injection. Existence-check + upload run over their own
+                        russh exec/SFTP channel, invisible to the user.
 ```
 
-Mixing these causes echo duplication and non-deterministic exit behavior.
+Payload injection on the interactive channel (e.g. base64-encoding a script's content and `ptyWrite`-ing it) is the bug this rule exists to prevent: that channel echoes back anything written to it exactly as if the user typed it, with no way to suppress that without also losing styling and risking stray artifacts. See `spec-terminal.md` § "Architecture Decision: script execution stays on the interactive channel" for the full history.
 
 ---
 
@@ -144,6 +148,19 @@ while let Some(chunk) = pty_reader.read() {
     drain_and_emit(&buffer); // ← emits every chunk, causes overlapping output
 }
 ```
+
+---
+
+## Adding Rust Dependencies
+
+```bash
+# From src-tauri/
+cargo add <crate-name>
+```
+
+- Never hand-write a version number into `Cargo.toml`, and never copy one into a spec. `cargo add` resolves and pins the latest stable version compatible with the rest of the workspace — that resolution drifts over time, so a version typed into a doc goes stale the moment a real `cargo add`/`cargo update` runs. `Cargo.toml` is the only source of truth for versions.
+- If a spec needs to reference a dependency, name the crate only (e.g. "uses `russh-sftp`") — do not quote its version. To confirm what's actually pinned, read `Cargo.toml`, don't trust the spec text.
+- If unsure whether a new crate resolves cleanly against existing pins (`russh`, `tauri`, etc. are pinned to specific majors), run `cargo add <crate> --dry-run` first.
 
 ---
 

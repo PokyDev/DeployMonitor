@@ -165,26 +165,32 @@ Hostname · connection badge (pulse if connected) · Connect/Disconnect button �
 | Content | textarea — `JetBrains Mono`, line numbers, dark background (always) |
 
 **Actions:**
-- **Save** (secondary) — persist to SQLite
-- **Execute** (primary) — upload via SFTP + run via SSH
-- **Cancel Execution** — visible only during active run
+- **Save** (secondary) — persist to disk as a local file (not SQLite — see `spec-backend.md` § SQLite Schema status note)
+- **Execute** (primary) — prepare + run on the remote instance (see flow below)
+- **Cancel Execution** — visible only during active run; Ctrl+C in the underlying terminal session, same as cancelling anything else typed there
 
 **Executing state:**
 1. "Execute" button → "Executing…" with pulse animation
-2. Terminal panel auto-expands
-3. Output streams line-by-line via `script:output-line` events
-4. On finish: success/error banner with exit code and duration
+2. Terminal panel auto-expands — it's the *same* interactive terminal, not a dedicated output viewer
+3. Output streams as ordinary `pty:data` — the script's own stdout/stderr, exactly as if the user had typed the command themselves
+4. Completion is detected by matching an invisible OSC end-marker in that same stream (mirrors how SSH connect/disconnect is already detected) — shown as a success/error banner with exit code
 
-**Execution flow:**
+> **Status: Part 1 implemented (2026-06-22), Part 2 not yet.** Today "Ejecutar" gates on an active SSH session (inline message if disconnected, no Rust call) and runs steps 1–2 of the flow below — uploading and verifying the script over the side-channel, with progress/success/error feedback shown next to the file in the list. Steps 3–4 (running it on the interactive terminal and detecting completion) are a future session — see `spec-backend.md` § "Script Remote Execution".
+
+**Execution flow** (see `spec-terminal.md` § "Architecture Decision: script execution stays on the interactive channel" and `spec-backend.md` § "Script Remote Execution" for the full rationale):
 ```
 User clicks Execute
-  → invoke('script_run')
-  → Backend uploads script via SFTP
-  → Backend executes via SSH exec channel
-  → Events stream to frontend (script:output-line × N)
-  → Event: script:completed or script:error
-  → Result saved to sync_history in SQLite
+  → gated on connection.isOnline; if disconnected, shows an inline message and stops here
+  → invoke('script_remote_prepare')        (side-channel: one russh + SFTP session, invisible to the user)
+      → checks .deploy-monitor/scripts/<content-hash><extension> on the instance
+      → uploads it via SFTP only if missing, then verifies it landed correctly
+  → (not yet implemented) frontend sends ONE line to the already-open interactive terminal:
+      pty_write("bash <remote_path>; <OSC end-marker>")
+  → (not yet implemented) output streams to xterm as pty:data, same as anything else typed there
+  → (not yet implemented) frontend detects the OSC marker → shows exit code / duration
 ```
+
+> ⚠ The earlier draft of this flow (`invoke('script_run')` → SFTP upload → **execute over a separate SSH exec channel**, with `script:output-line`/`script:completed`/`script:error` events and a `sync_history` row) is **superseded**. Two implementations of "execute over a channel separate from the interactive terminal" were tried and rolled back the same day — see the architecture decision linked above. Do not resurrect the exec-channel-execution model or the three `script:*` events.
 
 ---
 
@@ -239,7 +245,7 @@ Available on all post-login screens.
 - Auto-expands when a script starts executing
 - Tabs: one per active or recent execution session (Chrome DevTools style)
 - Output persists while app is open; resets on restart
-- Full output history available in `sync_history`
+- Full output history lives only in the terminal's scrollback for the current session — not persisted (see `spec-backend.md` § SQLite Schema status note)
 
 ---
 

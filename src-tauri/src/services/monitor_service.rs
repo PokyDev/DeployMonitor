@@ -151,11 +151,9 @@ fn parse_snapshot(stdout: &str) -> Result<MetricSnapshot, AppError> {
         swap.ok_or_else(|| AppError::MetricsParseFailed("SWAP".into()))?;
     let (disk_total_gb, disk_used_gb) =
         disk.ok_or_else(|| AppError::MetricsParseFailed("DISK".into()))?;
-    let (net_rx_mbs, net_tx_mbs) =
-        net.ok_or_else(|| AppError::MetricsParseFailed("NET".into()))?;
+    let (net_rx_mbs, net_tx_mbs) = net.ok_or_else(|| AppError::MetricsParseFailed("NET".into()))?;
     let uptime_secs = uptime_secs.ok_or_else(|| AppError::MetricsParseFailed("UPTIME".into()))?;
-    let process_count =
-        process_count.ok_or_else(|| AppError::MetricsParseFailed("PROC".into()))?;
+    let process_count = process_count.ok_or_else(|| AppError::MetricsParseFailed("PROC".into()))?;
     let connection_count =
         connection_count.ok_or_else(|| AppError::MetricsParseFailed("CONN".into()))?;
 

@@ -70,6 +70,15 @@ pub enum AppError {
 
     #[error("Failed to delete file: {0}")]
     FileDeleteFailed(String),
+
+    #[error("Failed to upload script to instance: {0}")]
+    ScriptUploadFailed(String),
+
+    #[error("Could not verify remote script: {0}")]
+    RemoteCheckFailed(String),
+
+    #[error("Failed to delete remote script: {0}")]
+    RemoteDeleteFailed(String),
 }
 
 impl Serialize for AppError {
@@ -100,6 +109,9 @@ impl Serialize for AppError {
             AppError::FileAlreadyExists(name) => ("FILE_ALREADY_EXISTS", name.clone()),
             AppError::InvalidFileName(msg) => ("INVALID_FILE_NAME", msg.clone()),
             AppError::FileDeleteFailed(msg) => ("FILE_DELETE_FAILED", msg.clone()),
+            AppError::ScriptUploadFailed(msg) => ("SCRIPT_UPLOAD_FAILED", msg.clone()),
+            AppError::RemoteCheckFailed(msg) => ("REMOTE_CHECK_FAILED", msg.clone()),
+            AppError::RemoteDeleteFailed(msg) => ("REMOTE_DELETE_FAILED", msg.clone()),
         };
         let mut state = serializer.serialize_struct("AppError", 2)?;
         state.serialize_field("code", code)?;

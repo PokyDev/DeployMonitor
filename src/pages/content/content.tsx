@@ -59,8 +59,9 @@ export default function Content() {
   const scripts = useScriptFiles();
   const history = useMockHistory();
 
-  // Remote execution isn't implemented yet (Execute is disabled in the UI),
-  // so there's never a running script to report.
+  // "Ejecutar" only uploads the script so far (see use-script-remote.ts) — it
+  // doesn't actually run anything on the instance yet, so there's never a
+  // running script to report.
   const runningScripts = 0;
 
   const handleLogout = () => {
@@ -78,7 +79,7 @@ export default function Content() {
       section = <Monitor connection={connection} />;
       break;
     case 'scripts':
-      section = <Scripts scripts={scripts} />;
+      section = <Scripts scripts={scripts} connection={connection} />;
       break;
     case 'history':
       section = <HistoryView history={history} />;

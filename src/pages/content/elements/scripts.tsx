@@ -18,9 +18,12 @@ import {
   MouseRight,
 } from 'lucide-react';
 import type { useScriptFiles, ScriptFileEntry } from '../../../hooks/use-script-files';
+import { useScriptRemote, type ScriptActionStatus } from '../../../hooks/use-script-remote';
+import type { useSshConnection } from '../../../hooks/use-ssh-connection';
 import './scripts.css';
 
 type Scripts = ReturnType<typeof useScriptFiles>;
+type Connection = ReturnType<typeof useSshConnection>;
 
 type Token = { text: string; cls?: 'kw' | 'str' | 'cmt' | 'var' };
 
@@ -199,6 +202,64 @@ function DeleteConfirmCard({ onConfirm, onCancel }: { onConfirm: () => void; onC
             onAnimationEnd={close}
           />
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Feedback for "Ejecutar" — uploading progress, then a success/error message.
+ * Same mount/open/close grid trick as `DeleteConfirmCard` above (entrance via
+ * a rAF-delayed `open`, exit gated on the grid-template-rows transition
+ * actually finishing) but with no confirm/cancel pair: `uploading` has no
+ * auto-dismiss since the live percent is the content; `success`/`error`
+ * auto-dismiss via their own 5s progress-fill animation (hover pauses it,
+ * same as the delete countdown). The parent keys this by `status.id` so a
+ * re-run on the same file always mounts a fresh instance instead of reusing
+ * one that might still be mid-exit from a previous run. */
+function ScriptActionStatusCard({
+  status,
+  onDismiss,
+}: {
+  status: ScriptActionStatus;
+  onDismiss: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setOpen(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  const close = () => setOpen(false);
+
+  return (
+    <div
+      className={`scripts-action-status scripts-action-status--${status.kind}${open ? ' scripts-action-status--open' : ''}`}
+      onTransitionEnd={(e) => {
+        if (e.propertyName === 'grid-template-rows' && !open) onDismiss();
+      }}
+    >
+      <div className="scripts-action-status__inner">
+        {status.kind === 'uploading' ? (
+          <>
+            <span className="scripts-action-status__text">
+              Subiendo script… {Math.round(status.percent)}%
+            </span>
+            <div className="scripts-action-status__progress">
+              <div
+                className="scripts-action-status__progress-fill"
+                style={{ width: `${status.percent}%` }}
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            <span className="scripts-action-status__text">{status.message}</span>
+            <div className="scripts-action-status__progress">
+              <div className="scripts-action-status__progress-fill" onAnimationEnd={close} />
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -386,9 +447,10 @@ function CrossfadeSwap<K extends string>({
 
 type ScriptsProps = {
   scripts: Scripts;
+  connection: Connection;
 };
 
-export default function Scripts({ scripts }: ScriptsProps) {
+export default function Scripts({ scripts, connection }: ScriptsProps) {
   const {
     directoryPath,
     setDirectoryPath,
@@ -417,6 +479,9 @@ export default function Scripts({ scripts }: ScriptsProps) {
     cancelPendingDelete,
   } = scripts;
 
+  const { status: actionStatus, executeScript, dismissStatus, cleanupRemoteCopy } =
+    useScriptRemote(connection);
+
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef(new Map<string, HTMLDivElement>());
@@ -427,6 +492,17 @@ export default function Scripts({ scripts }: ScriptsProps) {
   const requestDeleteFromToolbar = (path: string) => {
     requestDelete(path);
     itemRefs.current.get(path)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
+
+  // Best-effort remote cleanup runs first so it can resolve the file's
+  // tracked remote state before local deletion removes it from disk — the
+  // actual network round-trip then continues in the background (see
+  // `cleanupRemoteCopy`), so this never delays the local delete on the SSH
+  // round-trip itself.
+  const handleConfirmDelete = async (path: string) => {
+    const script = files.find((f) => f.path === path);
+    if (script) await cleanupRemoteCopy(script);
+    void deleteFile(path);
   };
 
   // Close the context menu on any outside interaction or Escape — same
@@ -466,6 +542,9 @@ export default function Scripts({ scripts }: ScriptsProps) {
     if (selected) lastSelectedRef.current = selected;
   }, [selected]);
   const displaySelected = selected ?? lastSelectedRef.current;
+
+  const isUploadingSelected =
+    actionStatus?.kind === 'uploading' && actionStatus.path === displaySelected?.path;
 
   const subtitle = !directoryPath
     ? 'Selecciona un directorio para ver tus scripts'
@@ -514,8 +593,15 @@ export default function Scripts({ scripts }: ScriptsProps) {
                   />
                   {pendingDeletePath === script.path && (
                     <DeleteConfirmCard
-                      onConfirm={() => void deleteFile(script.path)}
+                      onConfirm={() => void handleConfirmDelete(script.path)}
                       onCancel={cancelPendingDelete}
+                    />
+                  )}
+                  {actionStatus?.path === script.path && (
+                    <ScriptActionStatusCard
+                      key={actionStatus.id}
+                      status={actionStatus}
+                      onDismiss={dismissStatus}
                     />
                   )}
                 </Fragment>
@@ -575,8 +661,10 @@ export default function Scripts({ scripts }: ScriptsProps) {
                       />
                       <EditorToolbarButton
                         icon={Zap}
-                        label="Ejecutar script (próximamente)"
-                        disabled
+                        label={isUploadingSelected ? 'Subiendo…' : 'Ejecutar'}
+                        onClick={() => void executeScript(displaySelected, content, dirty, save)}
+                        pulse={isUploadingSelected}
+                        disabled={isUploadingSelected}
                       />
                     </div>
                   </div>

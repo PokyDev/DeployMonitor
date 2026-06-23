@@ -68,6 +68,7 @@ At the end of every significant session:
 - No business logic inside `commands/`. Commands validate, delegate to services, map errors.
 - `AppError` variants serialize as `{ code: string, message: string }` — maintain this contract.
 - Run `cargo clippy --all-targets -- -D warnings` before marking Rust work complete.
+- New dependencies: add via `cargo add <crate>` from `src-tauri/`, never hand-write a version into `Cargo.toml` or a spec — see `spec-rust-patterns.md` § "Adding Rust Dependencies".
 
 ### CSS / Styling
 - **CSS Modules only.** No inline styles, no Tailwind, no styled-components.
@@ -113,15 +114,15 @@ Full spec in `docs/spec-terminal.md`. Critical rules:
 - Do not reintroduce a custom ANSI/VT100 parser, manual `keyToEscapeSequence` map, or `outputChunks` array — these are superseded by xterm.js. The prior "no third-party ANSI library" rule no longer applies; `xterm.js` is an accepted dependency.
 - ANSI SGR 33 → `#D4AF37` (gold) via xterm.js `ITheme`, not a custom converter.
 - `drain_pty_buffer` called **once after the read loop**, never inside it.
-- Reuse the same `xterm.js`-backed component (read-only mode) for streamed script-automation output — do not build a second ANSI renderer.
+- Script execution output is not a separate rendering target — it streams into the same interactive `xterm.js` `Terminal` instance the user already has open, via ordinary `pty:data` chunks. Do not build a second `Terminal` instance (read-only or otherwise) for it — see `spec-terminal.md` § "Architecture Decision: script execution stays on the interactive channel".
 
 ---
 
 ## SSH Channel Architecture
 
-- **PTY + shell channel** for interactive sessions (welcome banner, prompt).
-- **Exec channels** for all discrete commands — prevents echo duplication.
-- Never reuse an exec channel. Open a new one per command.
+- **Interactive terminal** — today this is a local PTY (`portable-pty`) running the system `ssh` binary as a subprocess, *not* a `russh` PTY+shell channel — that design in `spec-terminal.md` is an aspirational future direction, not current behavior. Connection state is detected heuristically from output text (`src/lib/ssh-utils.ts`), not from a session object.
+- **Exec channels** (`russh`) — for all discrete, non-interactive commands. One new authenticated session + channel per command, never reused. `monitor_service.rs` is the reference implementation.
+- **Script execution stays on the interactive channel** — a script run sends exactly one plain command line to the same PTY the user is looking at (e.g. `bash ~/.deploy-monitor/scripts/<hash>.sh`). Checking whether the script already exists on the instance and uploading it if not happen over their own exec/SFTP channel, completely separate from and invisible to the interactive terminal. Never inject a script's content (base64 or otherwise) into the interactive channel — see `spec-terminal.md` § "Architecture Decision: script execution stays on the interactive channel" for why that was tried twice and rolled back both times.
 
 ---
 

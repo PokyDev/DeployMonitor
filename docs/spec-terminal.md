@@ -41,7 +41,31 @@ Both output events feed the same `xterm.js` `Terminal` instance (see decision be
 **What this means for an agent working in this codebase:**
 - If you see references to `ANSI-to-HTML converter`, `SGR_MAP`, `outputChunks` array, or `keyToEscapeSequence` in old code/commits, these are **superseded** — do not extend them, migrate them to the `xterm.js` patterns below.
 - Do not reintroduce a custom ANSI/VT100 parser. `xterm.js` is an intentional, accepted third-party dependency for this specific purpose — it does not violate the "no third-party ANSI library" guidance that predates this decision (that guidance is now obsolete).
-- The same `Terminal` component (in read-only mode) is the preferred renderer for streamed script-automation output (see "Reuse for script automation output" below) — do not build a second ANSI renderer for that feature.
+- Script automation output is **not** a separate rendering target — see "Architecture Decision: script execution stays on the interactive channel" below. Do not build a second `Terminal` instance (read-only or otherwise) for it.
+
+---
+
+## Architecture Decision: script execution stays on the interactive channel (2026-06-22)
+
+**Decision:** Running a script does not open a second terminal, a read-only output viewer, or a separate PTY/exec channel for its output. The already-open interactive terminal (local PTY → `ssh` subprocess, see the status note under "Backend: SSH Terminal" below) is the only place script output is ever rendered. The backend only ever writes **one line** to that PTY to start a run — a plain shell command referencing a file that is already sitting on the remote instance, e.g.:
+
+```
+bash ~/.deploy-monitor/scripts/<content-hash>.sh; printf '\033]633;DM-DONE;%s\007' "$?"
+```
+
+Everything needed *before* that line is sent — checking whether the script already exists on the instance, and uploading it if not — happens over a separate, invisible side-channel: a short-lived authenticated `russh` session opened the same way `monitor_service.rs` already does for metrics polling (`connect_authenticated` + exec channel / SFTP). That side-channel never emits `pty:data` and never touches xterm.js. See `spec-backend.md` § "Script Remote Execution" for the Rust-side design.
+
+**Why this changed:** Two prior approaches were tried and rolled back the same day, both because they leaked visible noise into the user's terminal:
+1. Piping the script's content as a base64 blob through the *interactive* PTY (`ptyWrite`) and decoding it remotely ("Script Launch Prototype"). The remote tty echoes back anything written to it exactly as if the user had typed it — there is no way to inject a multi-line payload on this channel invisibly.
+2. Wrapping that same injection in `stty -echo` / `stty echo` plus an OSC end-marker. This hid the echo but not the artifacts of the multi-line assignment itself (stray blank lines from the chunked base64 variable), and the script's own output still didn't read like normal terminal output.
+
+Both failed for the same underlying reason: anything written to the interactive PTY is indistinguishable from user keystrokes, so there is no clean way to inject a *payload* through it — only commands. The fix is to stop sending a payload at all: upload the file out-of-band first, then send a normal one-line command. There is nothing left to leak.
+
+**What this means for an agent working in this codebase:**
+- Do not reintroduce base64-over-`ptyWrite` injection, `stty -echo` bracketing, or any multi-line write to the interactive PTY for running a script. If you see `script-run-utils.ts`, `matchScriptRunEnd`, or `SCRIPT_RUN_CARRY_LENGTH` referenced in old commits, these are **superseded** — do not resurrect them.
+- Do not build a second `Terminal` instance for script output, read-only or otherwise. Script output is just more `pty:data` flowing into the same `Terminal` instance the user is already looking at.
+- The OSC end-marker technique (`\033]<id>;payload\007`) is still valid — xterm.js silently discards unrecognized OSC sequences, so it's the right way to signal "run finished, exit code N" back to the frontend without printing visible text. It is now appended **after** the single command line, not used to bracket a multi-line injection.
+- The upload/existence-check side-channel runs over `russh`, completely separate from the local-PTY-based interactive terminal. Reuse `connect_authenticated` (`ssh_connect.rs`) — do not open a second local PTY or a second `ssh` subprocess for this.
 
 ---
 
@@ -128,9 +152,9 @@ useEffect(() => {
 
 `FitAddon.fit()` measures the container and resizes the `Terminal` instance internally — read the resulting `cols`/`rows` directly from `term` afterward. There is no manual character-dimension measurement.
 
-### Reuse for script automation output
+### Script automation output
 
-Script execution runs over **exec channels** (`spec-backend.md` § SSH exec channel), separate from the interactive PTY/SSH terminal above. That output is mostly linear/append-only but can still contain ANSI color codes (npm, pnpm, ansible, docker output). Reuse the same `Terminal` wrapper component in read-only mode (`disableStdin: true`, no `onData` handler, feed chunks via `term.write()`) to render it. This avoids maintaining a second ANSI renderer for script logs — one `xterm.js`-backed component serves both the interactive terminal and script output viewers.
+Superseded — see "Architecture Decision: script execution stays on the interactive channel" near the top of this file. Script output is not rendered by a separate component; it arrives as ordinary `pty:data` chunks into the same `Terminal` instance already on screen, exactly like anything else the shell prints.
 
 ### StrictMode guard
 
@@ -232,15 +256,20 @@ app.emit("pty:data", String::from_utf8_lossy(&buffer).to_string())?;
 
 ## Backend: SSH Terminal (`src-tauri/src/ssh/`)
 
+> ⚠ **Status: aspirational, not implemented.** The module path, the `ssh_pty_*` Tauri commands, and the `russh` PTY+shell channel described in this section do not exist in the current codebase. The real interactive SSH session today is the **local PTY** described under "Backend: Local PTY" above, running the system `ssh` binary as a subprocess — see `src-tauri/src/services/pty_service.rs` and `src/lib/ssh-utils.ts` (connection state is detected heuristically from output text, not from a `russh` session object). This section documents a possible future direction; do not implement `ssh_pty_*` against it without confirming with the user first. The part of this page that **is** real and current today: the exec-channel pattern in `src-tauri/src/services/monitor_service.rs` (`connect_authenticated` + `channel_open_session().exec()`) — the script-execution side-channel follows the same pattern (see "Architecture Decision: script execution stays on the interactive channel" above, and `spec-backend.md` § "Script Remote Execution").
+
 ### Channel separation — critical rule
 
 ```
-Interactive terminal  →  PTY + shell channel  (open once per SSH session)
-Discrete commands     →  exec channel         (open new one per command, never reuse)
-Script execution      →  exec channel         (with streaming output callback)
+Interactive terminal  →  local PTY running `ssh` as a subprocess (current reality)
+                          PTY + shell channel via russh (aspirational, not implemented)
+Discrete commands     →  exec channel via russh (real — see monitor_service.rs)
+Script execution      →  stays on the interactive channel as a single command line, no payload.
+                          Existence-check + upload run over their own exec/SFTP channel,
+                          separate from the interactive one and never streamed to the user.
 ```
 
-Mixing these causes echo duplication and non-deterministic exit on interactive channels.
+Injecting a payload (script content, base64, etc.) into the interactive channel is exactly the bug this redesign fixes — see the Architecture Decision above.
 
 ### SSH PTY channel setup
 

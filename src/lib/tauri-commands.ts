@@ -109,3 +109,65 @@ export async function scriptFsCreate(dirPath: string, fileName: string): Promise
 export async function scriptFsDelete(path: string): Promise<void> {
   await invoke('script_fs_delete', { path });
 }
+
+export type ScriptRemotePrepareResult = {
+  remote_path: string;
+  uploaded: boolean;
+};
+
+/** Payload of the `script:upload-progress` event emitted while `scriptRemotePrepare` is uploading. */
+export type ScriptUploadProgress = {
+  content_hash: string;
+  percent: number;
+  bytes_uploaded: number;
+  total_bytes: number;
+};
+
+/**
+ * Checks whether a script (identified by `contentHash`) already exists on the
+ * instance and uploads it via SFTP over a one-off side-channel session if not —
+ * never touches the interactive terminal. Throws { code, message } on failure
+ * (e.g. SSH_HOST_UNREACHABLE, SCRIPT_UPLOAD_FAILED, REMOTE_CHECK_FAILED).
+ */
+export async function scriptRemotePrepare(
+  pemPath: string,
+  user: string,
+  host: string,
+  port: number | undefined,
+  content: string,
+  contentHash: string,
+  extension: string,
+): Promise<ScriptRemotePrepareResult> {
+  return await invoke<ScriptRemotePrepareResult>('script_remote_prepare', {
+    pemPath,
+    user,
+    host,
+    port: port ?? null,
+    content,
+    contentHash,
+    extension,
+  });
+}
+
+/**
+ * Best-effort remote cleanup, called alongside local script deletion.
+ * Returns `false` (not an error) if the script was never uploaded. Throws
+ * { code, message } on a real failure (e.g. SSH_HOST_UNREACHABLE, REMOTE_DELETE_FAILED).
+ */
+export async function scriptRemoteDelete(
+  pemPath: string,
+  user: string,
+  host: string,
+  port: number | undefined,
+  contentHash: string,
+  extension: string,
+): Promise<boolean> {
+  return await invoke<boolean>('script_remote_delete', {
+    pemPath,
+    user,
+    host,
+    port: port ?? null,
+    contentHash,
+    extension,
+  });
+}

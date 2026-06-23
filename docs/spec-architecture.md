@@ -70,6 +70,8 @@ Architecture and stack for DeployMonitor / SSH Manager.
 
 **`@xterm/xterm` over a custom ANSI/VT100 parser (2026-06-11):** The frontend originally rendered PTY/SSH output through a hand-written SGR-only ANSI-to-HTML converter. That converter cannot interpret cursor-positioning or alt-screen sequences, so any interactive program (`vim`, `htop`, `less`, `nano`, package-manager menus) renders as garbled text instead of a redrawn screen. `portable-pty` and the `russh` PTY channel are unaffected — they still emit raw byte streams. Only the frontend consumer changed. See `spec-terminal.md` § "Architecture Decision: xterm.js" for the full rationale and migration notes.
 
+**Script execution stays on the interactive channel, not a separate exec channel (2026-06-22):** Two earlier attempts ran a script's content through the interactive terminal's PTY itself (base64-over-`ptyWrite`, then the same wrapped in `stty -echo` + an OSC marker) to avoid building a second output channel. Both leaked visible artifacts because that PTY echoes back anything written to it exactly as if typed — there's no way to inject a payload through it invisibly. The fix moves the *payload* (uploading the script) to a separate, invisible `russh` side-channel that never touches the terminal, while keeping *execution* — a single one-line command — on the interactive channel the user already has open, so output still streams live with normal xterm styling. See `spec-terminal.md` § "Architecture Decision: script execution stays on the interactive channel" and `spec-backend.md` § "Script Remote Execution".
+
 ---
 
 ## Tauri Plugins
@@ -234,3 +236,4 @@ export const useMonitorStore = create<MonitorStore>((set) => ({
 | Argon2id | bcrypt | OWASP recommended, GPU-resistant |
 | CSS Modules | Tailwind | Design token system requires precise CSS custom property control |
 | `tauri-plugin-dialog` | Third-party dialogs | Official plugin, `.pem` path never touches renderer |
+| Script execution on interactive channel | Separate exec-channel execution + read-only output viewer | base64-over-PTY and `stty`+OSC bracketing both leaked visible artifacts; payload injection on the interactive channel is fundamentally indistinguishable from typed input — see `spec-terminal.md` § "Architecture Decision: script execution stays on the interactive channel" |
