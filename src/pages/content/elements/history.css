@@ -1,6 +1,6 @@
 /* ========================
    history.css
-   History section — execution card grid + detail modal
+   History section — execution card grid + detail sidebar
    ======================== */
 
 /* ── Card grid — auto-fit reflows the column count on its own as available
@@ -105,47 +105,68 @@
   background: var(--bg-elevated);
 }
 
-/* ── Modal ── */
-.history-modal-overlay {
+/* ── Sidebar (slide-in detail panel) — stays mounted and toggles `--open`
+   so the slide-out transition has content to animate, instead of an
+   enter-only keyframe that would leave nothing to animate on close. ── */
+/* margin-top/height instead of inset/bottom — same pattern .dashboard uses
+   in content.css to sit below the fixed titlebar (36px, z-index 1000)
+   without being painted over by it. */
+.history-sidebar-overlay {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  left: 0;
+  margin-top: 36px;
+  height: calc(100vh - 36px);
   background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(2px);
-  display: grid;
-  place-items: center;
   z-index: 80;
-  animation: dm-fade-in var(--duration-fast) var(--ease-out) both;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-base) var(--ease-out);
 }
 
-.history-modal {
-  width: min(640px, calc(100vw - 48px));
-  max-height: min(620px, calc(100vh - 96px));
+.history-sidebar-overlay--open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.history-sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: calc(100vh - 36px);
+  z-index: 81;
+  width: min(440px, calc(100vw - 32px));
   display: flex;
   flex-direction: column;
   background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xl);
+  border-left: 1px solid var(--border-default);
   box-shadow: var(--shadow-md);
-  overflow: hidden;
-  animation: history-modal-in var(--duration-base) var(--ease-out) both;
+  transform: translateX(100%);
+  transition: transform var(--duration-base) var(--ease-out);
 }
 
-@keyframes history-modal-in {
-  from { opacity: 0; transform: translateY(10px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+.history-sidebar--open {
+  transform: translateX(0);
 }
 
-.history-modal__head {
+.history-sidebar__head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--border-subtle);
   flex: 0 0 auto;
 }
 
-.history-modal__title {
+.history-sidebar__back {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+}
+
+.history-sidebar__title {
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -156,33 +177,20 @@
   color: var(--text-primary);
 }
 
-.history-modal__title span:last-child {
+.history-sidebar__title span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.history-modal__close {
-  width: 32px;
-  height: 32px;
-  flex: 0 0 auto;
-}
-
-.history-modal__body {
+.history-sidebar__body {
   padding: var(--space-5);
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  flex: 1 1 auto;
   overflow-y: auto;
   min-height: 0;
-}
-
-.history-modal__foot {
-  display: flex;
-  justify-content: flex-end;
-  padding: var(--space-3) var(--space-5);
-  border-top: 1px solid var(--border-subtle);
-  flex: 0 0 auto;
 }
 
 /* ── Detail stat chips — replaces the old flat key/value grid with a panel
@@ -228,7 +236,7 @@
   border: 1px solid #222;
   border-radius: var(--radius-lg);
   padding: var(--space-3) var(--space-4);
-  max-height: 280px;
+  height: 360px;
   overflow-y: auto;
   font-family: var(--font-code);
   font-size: 12px;
@@ -247,9 +255,9 @@
 .history-log-term__line--ok     { color: var(--color-success-light); }
 .history-log-term__line--err    { color: var(--color-error-light); }
 
-/* Minimized window (~700×600): the modal's fixed max-height has much less
-   room to spend, so the log block trades its max-height for the stat grid
-   and head/foot instead of relying on the body's internal scroll. */
+/* Minimized window (~700×600): the sidebar spans the full window height,
+   so the log block still trades its height for the stat grid and head
+   instead of relying entirely on the body's internal scroll. */
 @media (max-width: 760px) {
   .history-card {
     padding: var(--space-3);
@@ -261,14 +269,22 @@
     height: 30px;
   }
 
+  .history-sidebar__head,
+  .history-sidebar__body {
+    padding: var(--space-4);
+  }
+
   .history-log-term {
-    max-height: 170px;
+    height: 260px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .history-modal-overlay,
-  .history-modal,
+  .history-sidebar-overlay,
+  .history-sidebar {
+    transition: none;
+  }
+
   .history-card,
   .history-log-term__line {
     animation: none;

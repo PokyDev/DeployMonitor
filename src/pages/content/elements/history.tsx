@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
-import { Braces, FileCode, FileCode2, FileTerminal, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ArrowLeft, Braces, FileCode, FileCode2, FileTerminal } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { buildLogs } from '../../../hooks/use-mock-history';
 import type { useMockHistory, ExecutionResult, HistoryEntry } from '../../../hooks/use-mock-history';
 import './history.css';
 
@@ -39,7 +40,7 @@ function getExtensionKey(scriptName: string): ExtensionKey {
 
 /** Same icon/color identity rendered at two sizes — `card` on the grid tile,
  * `modal` (smaller chip) in the detail header — so a card visually carries
- * over into the modal it opens. */
+ * over into the sidebar it opens. */
 function ExtensionIcon({ scriptName, variant = 'card' }: { scriptName: string; variant?: 'card' | 'modal' }) {
   const { icon: Icon, tone } = EXTENSION_STYLE[getExtensionKey(scriptName)];
   return (
@@ -59,8 +60,16 @@ function classifyLine(line: string): LogLineKind {
   return 'out';
 }
 
-function DetailModal({ history }: { history: History }) {
-  const { selected, logs, close } = history;
+/** Stays mounted once an entry has been opened the first time, so the
+ * closing slide-out transition has content to animate away instead of
+ * unmounting (and going blank) the instant `selected` clears to null. */
+function DetailSidebar({ history }: { history: History }) {
+  const { selected, close } = history;
+  const [lastEntry, setLastEntry] = useState<HistoryEntry | null>(null);
+
+  useEffect(() => {
+    if (selected) setLastEntry(selected);
+  }, [selected]);
 
   useEffect(() => {
     if (!selected) return;
@@ -69,37 +78,47 @@ function DetailModal({ history }: { history: History }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [selected, close]);
 
-  if (!selected) return null;
+  const entry = selected ?? lastEntry;
+  if (!entry) return null;
+
+  const isOpen = !!selected;
+  const logs = buildLogs(entry);
 
   return (
-    <div className="history-modal-overlay" onMouseDown={close}>
-      <div className="history-modal" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="history-modal__head">
-          <div className="history-modal__title">
-            <ExtensionIcon scriptName={selected.scriptName} variant="modal" />
-            <span>{selected.scriptName}</span>
-          </div>
-          <button type="button" className="dm-icon-btn history-modal__close" onClick={close} title="Cerrar" aria-label="Cerrar">
-            <X size={16} strokeWidth={1.5} aria-hidden="true" />
+    <div
+      className={`history-sidebar-overlay${isOpen ? ' history-sidebar-overlay--open' : ''}`}
+      onMouseDown={close}
+    >
+      <aside
+        className={`history-sidebar${isOpen ? ' history-sidebar--open' : ''}`}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="history-sidebar__head">
+          <button type="button" className="dm-icon-btn history-sidebar__back" onClick={close} title="Volver" aria-label="Volver">
+            <ArrowLeft size={16} strokeWidth={1.5} aria-hidden="true" />
           </button>
+          <div className="history-sidebar__title">
+            <ExtensionIcon scriptName={entry.scriptName} variant="modal" />
+            <span>{entry.scriptName}</span>
+          </div>
         </div>
-        <div className="history-modal__body">
+        <div className="history-sidebar__body">
           <div className="history-stat-grid">
             <div className="history-stat">
               <span className="history-stat__key">Ejecutado por</span>
-              <span className="history-stat__value history-stat__value--gold">{selected.triggeredBy}</span>
+              <span className="history-stat__value history-stat__value--gold">{entry.triggeredBy}</span>
             </div>
             <div className="history-stat">
               <span className="history-stat__key">Estado</span>
-              <span className="history-stat__value"><ResultBadge result={selected.result} /></span>
+              <span className="history-stat__value"><ResultBadge result={entry.result} /></span>
             </div>
             <div className="history-stat">
               <span className="history-stat__key">Duración</span>
-              <span className="history-stat__value">{selected.duration}</span>
+              <span className="history-stat__value">{entry.duration}</span>
             </div>
             <div className="history-stat">
               <span className="history-stat__key">Fecha</span>
-              <span className="history-stat__value">{selected.timestamp}</span>
+              <span className="history-stat__value">{entry.timestamp}</span>
             </div>
           </div>
           <div className="dm-label" style={{ marginBottom: 8 }}>Salida de terminal</div>
@@ -109,10 +128,7 @@ function DetailModal({ history }: { history: History }) {
             ))}
           </div>
         </div>
-        <div className="history-modal__foot">
-          <button type="button" className="dm-btn" onClick={close}>Cerrar</button>
-        </div>
-      </div>
+      </aside>
     </div>
   );
 }
@@ -165,7 +181,7 @@ export default function HistoryView({ history }: HistoryProps) {
         ))}
       </div>
 
-      <DetailModal history={history} />
+      <DetailSidebar history={history} />
     </div>
   );
 }
