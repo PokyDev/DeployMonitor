@@ -201,6 +201,16 @@ export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) 
     fitAddonRef.current = fitAddon;
     useTerminalStore.getState().setTerminal(term);
 
+    // Detects the invisible "script finished" marker (`\033]633;DM-DONE;<exitCode>\007`)
+    // that `runRemoteScript` (use-terminal-store.ts) appends after a script's
+    // `bash` command. xterm's own VT parser handles sequences split across
+    // pty:data chunks, which a manual regex over raw chunk text wouldn't.
+    const scriptDoneOsc = term.parser.registerOscHandler(633, (data) => {
+      const match = /^DM-DONE;(-?\d+)$/.exec(data);
+      if (match) useTerminalStore.getState().scriptDoneCb?.(Number(match[1]));
+      return true;
+    });
+
     // While the HTML lock screen overlay is visible, disable stdin so no
     // keystrokes reach onData or the PTY. Cursor is hidden for cleanliness.
     if (startLocked) {
@@ -286,6 +296,7 @@ export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) 
     return () => {
       unlockTimeoutsRef.current.forEach((id) => window.clearTimeout(id));
       unlockTimeoutsRef.current = [];
+      scriptDoneOsc.dispose();
       useTerminalStore.getState().setTerminal(null);
       term.dispose();
       termRef.current = null;

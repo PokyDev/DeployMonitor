@@ -311,6 +311,8 @@ function ScriptActionStatusCard({
               />
             </div>
           </>
+        ) : status.kind === 'running' ? (
+          <span className="scripts-action-status__text">Ejecutando script…</span>
         ) : (
           <>
             <span className="scripts-action-status__text">{status.message}</span>
@@ -623,6 +625,9 @@ export default function Scripts({ scripts, connection }: ScriptsProps) {
 
   const isUploadingSelected =
     actionStatus?.kind === 'uploading' && actionStatus.path === displaySelected?.path;
+  const isRunningSelected =
+    actionStatus?.kind === 'running' && actionStatus.path === displaySelected?.path;
+  const isBusySelected = isUploadingSelected || isRunningSelected;
 
   const subtitle = !directoryPath
     ? 'Selecciona un directorio para ver tus scripts'
@@ -744,10 +749,10 @@ export default function Scripts({ scripts, connection }: ScriptsProps) {
                       />
                       <EditorToolbarButton
                         icon={Zap}
-                        label={isUploadingSelected ? 'Subiendo…' : 'Ejecutar'}
+                        label={isUploadingSelected ? 'Subiendo…' : isRunningSelected ? 'Ejecutando…' : 'Ejecutar'}
                         onClick={() => void executeScript(displaySelected, content, dirty, save)}
-                        pulse={isUploadingSelected}
-                        disabled={isUploadingSelected}
+                        pulse={isBusySelected}
+                        disabled={isBusySelected}
                       />
                     </div>
                   </div>

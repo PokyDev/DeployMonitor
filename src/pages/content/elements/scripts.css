@@ -284,6 +284,17 @@
   color: var(--text-primary);
 }
 
+/* No percent to show while a script runs — a slow opacity pulse on the text
+   is the only "still working" signal, instead of an indeterminate progress bar. */
+.scripts-action-status--running .scripts-action-status__text {
+  animation: scripts-action-status-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes scripts-action-status-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
 .scripts-action-status__progress {
   height: 3px;
   border-radius: var(--radius-sm);

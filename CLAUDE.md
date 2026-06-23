@@ -158,11 +158,12 @@ Full spec in `docs/spec-terminal.md`. Critical rules:
 - SSH connection (`ssh_test_connection`, public key auth via `russh`, typed errors)
 - Native `.pem` file picker via `tauri-plugin-dialog`
 - SQLite schema with migrations (`sqlx`)
+- Script local FS management (create/read/write/delete/rename) + SFTP upload/delete/rename sync to the instance, keyed by file name (`script_remote_service.rs`, `use-script-remote.ts`) — see `spec-backend.md` § "Script Remote Execution"
 
 **Next in queue:**
 1. Import Claude Design layouts (titlebar done manually by developer)
 2. Monitoring panel — dashboard summary cards + full monitoring view
-3. Script management — local script FS, upload, remote execution with streaming output
+3. Script execution output on the interactive terminal — Part 2 of "Script Remote Execution": send the already-resolved `remote_path` to the open `pty`/terminal and detect completion via the OSC end-marker (upload/rename sync is done; this is what's left)
 4. Settings screen
 
 ---

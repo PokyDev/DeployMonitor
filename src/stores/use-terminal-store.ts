@@ -22,6 +22,13 @@ type TerminalStore = SshCallbacks & {
   locked: boolean;
   pendingOutput: string[];
 
+  /**
+   * Fired by terminal.tsx's OSC 633 handler when a `DM-DONE;<exitCode>`
+   * marker is parsed out of pty:data — see `runRemoteScript` below. Single
+   * slot, like the SSH callbacks: only one script run is ever in flight.
+   */
+  scriptDoneCb: ((exitCode: number) => void) | null;
+
   /** True while an SSH session is active (button-triggered or manually detected). */
   sshConnected: boolean;
   /** True while waiting for pty:data patterns that confirm SSH connected/failed. */
@@ -60,6 +67,8 @@ type TerminalStore = SshCallbacks & {
   stopSshDetection: () => void;
   /** Writes a frontend-generated system message directly to xterm (not to the PTY). */
   writeSystemMessage: (text: string) => void;
+  /** Registers/clears the one-shot script-completion callback. */
+  registerScriptDoneCallback: (cb: ((exitCode: number) => void) | null) => void;
 };
 
 export const useTerminalStore = create<TerminalStore>((set, get) => ({
@@ -67,6 +76,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
   isRunning: false,
   locked: true,
   pendingOutput: [],
+  scriptDoneCb: null,
 
   sshConnected: false,
   sshDetecting: false,
@@ -218,4 +228,75 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
   writeSystemMessage: (text) => {
     get().terminal?.write(text);
   },
+
+  registerScriptDoneCallback: (cb) => set({ scriptDoneCb: cb }),
 }));
+
+/**
+ * Waits until the terminal store's `locked` field becomes false.
+ * Rejects if the unlock animation doesn't complete in time. Shared by
+ * `use-ssh-connection.ts` (the "Conectar" flow) and `use-script-remote.ts`
+ * (running a script also needs the terminal unlocked and visible).
+ */
+export function waitForUnlock(timeoutMs = 20000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (!useTerminalStore.getState().locked) {
+      resolve();
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      unsub();
+      reject(new Error('Terminal unlock timeout'));
+    }, timeoutMs);
+    const unsub = useTerminalStore.subscribe((state) => {
+      if (!state.locked) {
+        window.clearTimeout(timer);
+        unsub();
+        resolve();
+      }
+    });
+  });
+}
+
+/**
+ * Sends `bash <remotePath>` to the already-open interactive PTY, followed by
+ * an invisible OSC 633 marker that reports the exit code once the script
+ * finishes — see `spec-terminal.md` § "Architecture Decision: script
+ * execution stays on the interactive channel". Resolves with the exit code,
+ * or rejects if the SSH session drops before the marker arrives (the script
+ * run is considered lost, not just slow — there is no other timeout here,
+ * since a deploy script may legitimately run for a long time).
+ */
+export function runRemoteScript(remotePath: string): Promise<number> {
+  return new Promise<number>((resolve, reject) => {
+    const store = useTerminalStore.getState();
+    if (!store.sshConnected) {
+      reject(new Error('SSH_CONNECTION_LOST'));
+      return;
+    }
+
+    let settled = false;
+    let unsub: (() => void) | null = null;
+
+    const settle = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      useTerminalStore.getState().registerScriptDoneCallback(null);
+      unsub?.();
+      fn();
+    };
+
+    useTerminalStore.getState().registerScriptDoneCallback((exitCode) => {
+      settle(() => resolve(exitCode));
+    });
+
+    unsub = useTerminalStore.subscribe((state, prev) => {
+      if (prev.sshConnected && !state.sshConnected) {
+        settle(() => reject(new Error('SSH_CONNECTION_LOST')));
+      }
+    });
+
+    const command = `bash ${remotePath}; printf '\\033]633;DM-DONE;%s\\007' "$?"\r`;
+    void useTerminalStore.getState().write(command);
+  });
+}

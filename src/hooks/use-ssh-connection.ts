@@ -9,7 +9,7 @@ import {
   hasKeepaliveFlag,
   SSH_DISCONNECTED_BANNER,
 } from '../lib/ssh-utils';
-import { useTerminalStore } from '../stores/use-terminal-store';
+import { useTerminalStore, waitForUnlock } from '../stores/use-terminal-store';
 import { useDashboardStore } from '../stores/use-dashboard-store';
 
 // Persists only the connection form fields across app restarts — the rest of
@@ -47,30 +47,6 @@ function mapErrorCode(code: string, raw: string): string {
     default:
       return raw || 'Error desconocido';
   }
-}
-
-/**
- * Waits until the terminal store's `locked` field becomes false.
- * Rejects if the unlock animation doesn't complete in time.
- */
-function waitForUnlock(timeoutMs = 20000): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (!useTerminalStore.getState().locked) {
-      resolve();
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      unsub();
-      reject(new Error('Terminal unlock timeout'));
-    }, timeoutMs);
-    const unsub = useTerminalStore.subscribe((state) => {
-      if (!state.locked) {
-        window.clearTimeout(timer);
-        unsub();
-        resolve();
-      }
-    });
-  });
 }
 
 /** Clears all SSH callbacks and stops detection — used on logout and full reset. */

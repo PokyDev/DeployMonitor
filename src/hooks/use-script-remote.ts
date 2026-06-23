@@ -7,12 +7,15 @@ import {
   type ScriptFileEntry,
   type ScriptUploadProgress,
 } from '../lib/tauri-commands';
+import { useTerminalStore, waitForUnlock, runRemoteScript } from '../stores/use-terminal-store';
+import { useDashboardStore } from '../stores/use-dashboard-store';
 import type { useSshConnection } from './use-ssh-connection';
 
 type Connection = ReturnType<typeof useSshConnection>;
 
 export type ScriptActionStatus =
   | { kind: 'uploading'; id: number; path: string; percent: number }
+  | { kind: 'running'; id: number; path: string }
   | { kind: 'success'; id: number; path: string; message: string }
   | { kind: 'error'; id: number; path: string; message: string };
 
@@ -45,13 +48,13 @@ function mapErrorCode(code: string, raw: string): string {
 }
 
 /**
- * Drives the SFTP upload side-channel behind "Ejecutar": gates on an active
- * SSH session, then uploads the script via `script_remote_prepare` with live
- * progress. The remote file is named exactly like the local one — see
- * `spec-backend.md` § "Script Remote Execution" — so re-running after an edit
- * just overwrites the same remote path instead of minting a new one. Sending
- * the uploaded script to the interactive terminal to actually run it is a
- * separate, not-yet-implemented step.
+ * Drives the full "Ejecutar" flow: gates on an active SSH session, uploads
+ * the script via `script_remote_prepare` (SFTP side-channel, with live
+ * progress) — the remote file is named exactly like the local one, see
+ * `spec-backend.md` § "Script Remote Execution", so re-running after an edit
+ * just overwrites the same remote path — then runs it on the already-open
+ * interactive terminal (`runRemoteScript`, `use-terminal-store.ts`),
+ * maximizing/unlocking the terminal panel first if needed.
  *
  * `status` is a single slot, not a queue — a new `executeScript` call always
  * replaces whatever is currently shown (mirrors `pendingDeletePath` in
@@ -74,8 +77,8 @@ export function useScriptRemote(connection: Connection) {
       dirty: boolean,
       save: () => Promise<void>,
     ) => {
-      // One upload at a time — ignore re-clicks while one is already in flight.
-      if (status?.kind === 'uploading') return;
+      // One run at a time — ignore re-clicks while one is already in flight.
+      if (status?.kind === 'uploading' || status?.kind === 'running') return;
 
       if (!connection.isOnline || !connection.info) {
         setStatus({
@@ -113,14 +116,33 @@ export function useScriptRemote(connection: Connection) {
           script.name,
         );
 
-        setStatus({
-          kind: 'success',
-          id: runId,
-          path: script.path,
-          message: result.uploaded
-            ? 'Script subido correctamente a la instancia.'
-            : 'El script ya estaba actualizado en la instancia.',
-        });
+        setStatus({ kind: 'running', id: runId, path: script.path });
+
+        try {
+          useDashboardStore.getState().setTerminalExpanded(true);
+          const termStore = useTerminalStore.getState();
+          if (termStore.locked) {
+            termStore.requestUnlock();
+            await waitForUnlock();
+          }
+
+          const exitCode = await runRemoteScript(result.remote_path);
+          setStatus({
+            kind: exitCode === 0 ? 'success' : 'error',
+            id: runId,
+            path: script.path,
+            message:
+              exitCode === 0
+                ? 'Script ejecutado correctamente.'
+                : `El script terminó con error (código ${exitCode}).`,
+          });
+        } catch (runErr) {
+          const message =
+            runErr instanceof Error && runErr.message === 'SSH_CONNECTION_LOST'
+              ? 'La sesión SSH se cerró antes de que el script terminara.'
+              : 'No se pudo iniciar la ejecución del script en la terminal.';
+          setStatus({ kind: 'error', id: runId, path: script.path, message });
+        }
       } catch (err) {
         const e = err as { code?: string; message?: string };
         setStatus({

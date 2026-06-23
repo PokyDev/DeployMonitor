@@ -160,6 +160,7 @@ Local file management (real, implemented — `commands/scripts.rs` → `services
 | `script_fs_write` | `path: String, content: String` | — |
 | `script_fs_create` | `dir_path: String, file_name: String` | `ScriptFileEntry` |
 | `script_fs_delete` | `path: String` | — |
+| `script_fs_rename` | `path: String, new_name: String` | `ScriptFileEntry` |
 
 `script_fs_delete` only removes the local file. The frontend (`use-script-remote.ts`'s `cleanupRemoteCopy`) separately fires a best-effort `script_remote_delete` alongside it when connected — there is no combined "delete both" command, and local deletion never blocks on the remote side.
 
@@ -307,7 +308,7 @@ Never run a discrete command by typing it into the interactive PTY unless the us
 
 ### Script Remote Execution (side-channel upload + existence check)
 
-> **Status: Part 1 implemented (2026-06-22, renamed from content-hash to file-name keying same day)** — the upload/verify/rename side-channel below is real (`script_remote_service.rs`). Part 2 — sending the resolved `remote_path` to the interactive terminal — is **not implemented yet**; `script_remote_prepare` returns and stops there. The frontend gates the whole flow on `connection.isOnline` (the same SSH-state the terminal/dashboard already track) *before* even calling the command — if there's no active session, it shows an inline message and never reaches Rust.
+> **Status: Part 1 and Part 2 implemented (2026-06-22 upload/verify, file-name keying + rename sync 2026-06-23, run-on-terminal 2026-06-23)** — the upload/verify/rename side-channel is real (`script_remote_service.rs`), and so is sending the resolved `remote_path` to the interactive terminal: `useScriptRemote.executeScript` (`src/hooks/use-script-remote.ts`) calls `runRemoteScript(remote_path)` (`src/stores/use-terminal-store.ts`) right after a successful `script_remote_prepare`. The frontend gates the whole flow on `connection.isOnline` (the same SSH-state the terminal/dashboard already track) *before* even calling the command — if there's no active session, it shows an inline message and never reaches Rust. No Rust changes were needed for Part 2 — `pty_write` already covered it; this was entirely frontend orchestration. See `spec-terminal.md` § "Architecture Decision: script execution stays on the interactive channel" for the run/detection design.
 
 New service: `services/script_remote_service.rs` (sibling of `ssh_connect.rs`, not under a `ssh/` module — see Module Structure note above).
 
@@ -325,7 +326,7 @@ New service: `services/script_remote_service.rs` (sibling of `ssh_connect.rs`, n
    d. Sets the file executable (`0o755`) via `sftp.set_metadata(...)`.
    e. Disconnects.
 5. Returns `{ remote_path: ".deploy-monitor/scripts/<file_name>", uploaded: bool }` to the frontend.
-6. *(Part 2, not implemented)* Frontend sends **one line** to the already-open interactive terminal — `pty_write` with something like `bash <remote_path>; printf '\033]633;DM-DONE;%s\007' "$?"\r`.
+6. Frontend maximizes the terminal panel if it's minimized (`useDashboardStore.setTerminalExpanded(true)`), unlocks it if the welcome lock screen is still showing, then sends **one line** to the already-open interactive terminal: `runRemoteScript(remote_path)` calls `termStore.write('bash <remote_path>; printf \'\\033]633;DM-DONE;%s\\007\' "$?"\r')`. It resolves with the exit code once the OSC 633 marker is parsed back out of `pty:data` (see `spec-terminal.md`), or rejects if the SSH session drops before that happens — there is no other timeout, since a script may legitimately run for a long time. A re-click on "Ejecutar" while a run (upload or execution) is already in flight is ignored, since the interactive PTY has no notion of queuing — see `use-script-remote.ts`'s `ScriptActionStatus` (`uploading` → `running` → `success`/`error`).
 
 **Local rename stays in sync.** Double-clicking a script's name in the Scripts list (`scripts.tsx`'s `ScriptListItem`) renames it in place via `script_fs_rename(path, new_name)`. On success, the frontend fires `script_remote_rename(pem_path, user, host, port, old_file_name, new_file_name)` — fire-and-forget, same pattern as delete cleanup below. Both `script_remote_delete` and `script_remote_rename` treat "the old file was never uploaded" as `Ok(false)`, not an error, so the frontend never needs to track or ask whether a remote copy exists before calling them. `rename_remote` clears anything already sitting at the destination name first, since SFTP `rename` fails if the destination exists (e.g. a leftover from a since-deleted script that once had that name).
 

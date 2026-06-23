@@ -177,6 +177,8 @@ Hostname · connection badge (pulse if connected) · Connect/Disconnect button �
 
 > **Status: Part 1 implemented (2026-06-22), Part 2 not yet.** Today "Ejecutar" gates on an active SSH session (inline message if disconnected, no Rust call) and runs steps 1–2 of the flow below — uploading and verifying the script over the side-channel, with progress/success/error feedback shown next to the file in the list. Steps 3–4 (running it on the interactive terminal and detecting completion) are a future session — see `spec-backend.md` § "Script Remote Execution".
 
+> **Renombrar (implemented, 2026-06-23):** Double-clicking a script's name in the list swaps it for an inline input (Enter/blur commits, Escape cancels). On commit, the local file is renamed first (`script_fs_rename`); only if that succeeds does the frontend fire a best-effort `script_remote_rename` to keep an already-uploaded copy in sync on the instance — a silent no-op if the script was never uploaded. See `spec-backend.md` § "Script Remote Execution".
+
 **Execution flow** (see `spec-terminal.md` § "Architecture Decision: script execution stays on the interactive channel" and `spec-backend.md` § "Script Remote Execution" for the full rationale):
 ```
 User clicks Execute
