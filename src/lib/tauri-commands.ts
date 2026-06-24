@@ -131,10 +131,11 @@ export type ScriptLogEntry = ScriptLogSummary & {
   output: string;
 };
 
-/** Lists run-history summaries (no `output`) from `<scriptsDir>/outputs/`, newest first.
- * Empty array if the folder doesn't exist yet — that's a normal "no runs yet" state, not an error. */
-export async function scriptLogList(scriptsDir: string): Promise<ScriptLogSummary[]> {
-  return await invoke<ScriptLogSummary[]>('script_log_list', { scriptsDir });
+/** Lists run-history summaries (no `output`) from `outputsDir`, the user-configured
+ * logs folder (independent of the scripts directory), newest first. Empty array if
+ * the folder doesn't exist yet — that's a normal "no runs yet" state, not an error. */
+export async function scriptLogList(outputsDir: string): Promise<ScriptLogSummary[]> {
+  return await invoke<ScriptLogSummary[]>('script_log_list', { outputsDir });
 }
 
 /** Reads one run-history entry's full content, including `output`. Throws { code, message } on failure. */

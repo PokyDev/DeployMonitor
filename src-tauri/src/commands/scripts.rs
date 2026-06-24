@@ -106,11 +106,12 @@ pub async fn script_remote_rename(
     .await
 }
 
-/// Lists run-history summaries (no `output`) from `<scripts_dir>/outputs/`,
-/// newest first. An empty vec means no runs yet, not an error.
+/// Lists run-history summaries (no `output`) from `outputs_dir`, the
+/// user-configured logs folder (independent of the scripts root), newest
+/// first. An empty vec means no runs yet, not an error.
 #[tauri::command]
-pub async fn script_log_list(scripts_dir: String) -> Result<Vec<ScriptLogSummary>, AppError> {
-    script_log_service::list_logs(&scripts_dir).await
+pub async fn script_log_list(outputs_dir: String) -> Result<Vec<ScriptLogSummary>, AppError> {
+    script_log_service::list_logs(&outputs_dir).await
 }
 
 /// Reads one run-history entry's full content, including `output`. Called

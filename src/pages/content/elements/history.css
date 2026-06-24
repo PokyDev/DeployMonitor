@@ -72,6 +72,16 @@
   background: var(--bg-overlay);
 }
 
+/* ── Logs-directory field — maximized-window-only inline counterpart of the
+   field `HistoryFilterDrawer` carries at minimized widths. Sized like
+   `.history-search` so the two share the toolbar row without one starving
+   the other; the input itself overflows internally (native text scroll)
+   rather than wrapping or breaking the row. ── */
+.history-dir-field {
+  flex: 1 1 220px;
+  min-width: 140px;
+}
+
 /* ── Filter drawer trigger — hidden on a maximized window, where the
    permanent rail (`HistoryFilterSidebar`) already covers this. Selector is
    `button.history-filter-trigger` (not just the class) so it reliably beats
@@ -409,6 +419,13 @@ button.history-filter-trigger {
   .history-search {
     flex: 1 1 120px;
     min-width: 90px;
+  }
+
+  /* `.dm-input-row` compound, not just the class, for the same reason
+     `button.history-filter-trigger` is qualified below — beats
+     `.dm-input-row`'s own `display: flex` regardless of CSS import order. */
+  .dm-input-row.history-dir-field {
+    display: none;
   }
 
   button.history-filter-trigger {

@@ -1,12 +1,10 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { open } from '@tauri-apps/plugin-dialog';
 import {
   Plus,
   FileCode,
   FilePlus2,
-  FolderOpen,
   Save,
   Zap,
   RefreshCw,
@@ -20,6 +18,7 @@ import {
 import type { useScriptFiles, ScriptFileEntry } from '../../../hooks/use-script-files';
 import { useScriptRemote, type ScriptActionStatus } from '../../../hooks/use-script-remote';
 import type { useSshConnection } from '../../../hooks/use-ssh-connection';
+import DirectoryPathField from './directory-path-field';
 import './scripts.css';
 
 type Scripts = ReturnType<typeof useScriptFiles>;
@@ -396,13 +395,6 @@ function EditorToolbarButton({ icon: Icon, label, onClick, active, pulse, presse
   );
 }
 
-/** Opens the native directory picker. Returns null if the user cancels. */
-async function pickScriptDirectory(): Promise<string | null> {
-  const result = await open({ directory: true, multiple: false });
-  if (typeof result === 'string') return result;
-  return null;
-}
-
 /** Standalone empty state shown in `.scripts-right` when no file is selected
  * — mutually exclusive with `.scripts-editor`, never nested inside it, so
  * the editor's tab/toolbar header never shows without an open file. */
@@ -609,11 +601,6 @@ export default function Scripts({ scripts, connection }: ScriptsProps) {
     };
   }, [contextMenu]);
 
-  const handlePickDirectory = async () => {
-    const dir = await pickScriptDirectory();
-    if (dir) setDirectoryPath(dir);
-  };
-
   // The editor pane keeps rendering the last selected file's tab/toolbar
   // while it fades out after a deselect, instead of needing `selected`
   // (already null at that point) to build that JSX.
@@ -699,18 +686,12 @@ export default function Scripts({ scripts, connection }: ScriptsProps) {
         </div>
 
         <div className="scripts-right">
-          <div className="dm-input-row scripts-dir-field">
-            <input
-              className="dm-input dm-input--readonly"
-              value={directoryPath}
-              readOnly
-              placeholder="Ningún directorio seleccionado"
-              spellCheck={false}
-            />
-            <button type="button" className="dm-btn" onClick={handlePickDirectory}>
-              <FolderOpen size={15} strokeWidth={1.5} aria-hidden="true" />
-            </button>
-          </div>
+          <DirectoryPathField
+            path={directoryPath}
+            onChange={setDirectoryPath}
+            className="scripts-dir-field"
+            ariaLabel="Directorio de scripts"
+          />
 
           <CrossfadeSwap<PaneKey>
             activeKey={selected ? 'editor' : 'empty'}

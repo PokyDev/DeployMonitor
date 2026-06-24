@@ -1,7 +1,8 @@
-import { ArrowLeft, ListFilter, X } from 'lucide-react';
+import { ArrowLeft, ListFilter, Settings, X } from 'lucide-react';
 import type { useHistoryFilters } from '../../../hooks/use-history-filters';
 import { STATUS_OPTIONS, SORT_OPTIONS } from '../../../hooks/use-history-filters';
 import { EXTENSION_STYLE, ExtensionIconForKey } from '../../../lib/script-extension';
+import DirectoryPathField from './directory-path-field';
 import HistorySlidePanel from './history-slide-panel';
 import './history-filter-sidebar.css';
 
@@ -106,20 +107,44 @@ export default function HistoryFilterSidebar({ filters }: { filters: Filters }) 
 
 /** Minimized-window equivalent of `HistoryFilterSidebar` — same facets, in
  * the same slide-in shell the execution detail view uses, since there's no
- * room for a permanent rail once the window is small. */
-export function HistoryFilterDrawer({ filters, isOpen, onClose }: { filters: Filters; isOpen: boolean; onClose: () => void }) {
+ * room for a permanent rail once the window is small. Also carries the
+ * logs-directory field, which on a maximized window lives inline in the
+ * toolbar instead (`history.tsx`) — the permanent rail above stays
+ * filter-only, so that field is deliberately not part of `HistoryFilterFacets`. */
+export function HistoryFilterDrawer({
+  filters,
+  isOpen,
+  onClose,
+  logsDirectoryPath,
+  onLogsDirectoryChange,
+}: {
+  filters: Filters;
+  isOpen: boolean;
+  onClose: () => void;
+  logsDirectoryPath: string;
+  onLogsDirectoryChange: (path: string) => void;
+}) {
   return (
-    <HistorySlidePanel isOpen={isOpen} onClose={onClose} ariaLabel="Filtros del historial">
+    <HistorySlidePanel isOpen={isOpen} onClose={onClose} ariaLabel="Filtros y configuración del historial">
       <div className="history-sidebar__head">
-        <button type="button" className="dm-icon-btn history-sidebar__back" onClick={onClose} title="Cerrar" aria-label="Cerrar filtros">
+        <button type="button" className="dm-icon-btn history-sidebar__back" onClick={onClose} title="Cerrar" aria-label="Cerrar">
           <ArrowLeft size={16} strokeWidth={1.5} aria-hidden="true" />
         </button>
         <div className="history-sidebar__title">
-          <ListFilter className="history-filter-drawer-icon" size={15} strokeWidth={1.5} aria-hidden="true" />
-          <span>Filtros</span>
+          <Settings className="history-filter-drawer-icon" size={15} strokeWidth={1.5} aria-hidden="true" />
+          <span>Filtros y configuración</span>
         </div>
       </div>
       <div className="history-sidebar__body">
+        <div className="history-filter-section">
+          <span className="dm-label">Carpeta de logs</span>
+          <DirectoryPathField
+            path={logsDirectoryPath}
+            onChange={onLogsDirectoryChange}
+            placeholder="Carpeta de logs no configurada"
+            ariaLabel="Carpeta de logs"
+          />
+        </div>
         <HistoryFilterFacets filters={filters} />
       </div>
     </HistorySlidePanel>

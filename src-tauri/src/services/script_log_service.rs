@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 
@@ -37,16 +35,16 @@ pub struct ScriptLogSummary {
     pub exit_code: i32,
 }
 
-/// Lists run-history summaries from `<scripts_dir>/outputs/`, newest first
-/// (filenames are `<started_at>__<script_name>.json`, so a reverse
-/// lexicographic sort is already chronological — no index file needed). A
-/// missing `outputs/` folder is a normal "no runs yet" state, not an error.
-/// A single unparsable file is skipped (logged) rather than failing the
-/// whole list, since one corrupt entry shouldn't blank the Historial view.
-pub async fn list_logs(scripts_dir: &str) -> Result<Vec<ScriptLogSummary>, AppError> {
-    let dir = Path::new(scripts_dir).join("outputs");
-
-    let mut read_dir = match fs::read_dir(&dir).await {
+/// Lists run-history summaries from `outputs_dir`, newest first (filenames
+/// are `<started_at>__<script_name>.json`, so a reverse lexicographic sort is
+/// already chronological — no index file needed). `outputs_dir` is the
+/// user-configured logs folder itself — independent of the scripts root, see
+/// `spec-backend.md` § "Script Run History". A missing folder is a normal
+/// "no runs yet" state, not an error. A single unparsable file is skipped
+/// (logged) rather than failing the whole list, since one corrupt entry
+/// shouldn't blank the Historial view.
+pub async fn list_logs(outputs_dir: &str) -> Result<Vec<ScriptLogSummary>, AppError> {
+    let mut read_dir = match fs::read_dir(outputs_dir).await {
         Ok(rd) => rd,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(AppError::DirectoryNotReadable(e.to_string())),

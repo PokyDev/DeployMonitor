@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, FolderOpen, ListFilter, Search, X } from 'lucide-react';
+import { ArrowLeft, FolderOpen, Search, Settings, X } from 'lucide-react';
 import type { useScriptHistory, ExecutionStatus, HistoryEntry } from '../../../hooks/use-script-history';
 import { useHistoryFilters } from '../../../hooks/use-history-filters';
 import { ExtensionIcon } from '../../../lib/script-extension';
+import DirectoryPathField from './directory-path-field';
 import HistoryFilterSidebar, { HistoryFilterDrawer } from './history-filter-sidebar';
 import HistorySlidePanel from './history-slide-panel';
 import './history.css';
@@ -159,7 +160,7 @@ type HistoryProps = {
 };
 
 export default function HistoryView({ history }: HistoryProps) {
-  const { history: entries, loading, error, open } = history;
+  const { history: entries, loading, error, open, logsDirectoryPath, setLogsDirectoryPath } = history;
   const filters = useHistoryFilters(entries);
   const { query, setQuery, filtered, filterSignature, clearFilters, hasActiveFilters } = filters;
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
@@ -198,17 +199,27 @@ export default function HistoryView({ history }: HistoryProps) {
               </button>
             )}
           </div>
+          {/* Only visible on a maximized window — the minimized drawer
+             (`HistoryFilterDrawer`) carries this same field instead, since
+             there's no room for it inline in the toolbar at that width. */}
+          <DirectoryPathField
+            path={logsDirectoryPath}
+            onChange={setLogsDirectoryPath}
+            className="history-dir-field"
+            placeholder="Carpeta de logs no configurada"
+            ariaLabel="Carpeta de logs"
+          />
           {/* Only visible at minimized window widths — the permanent rail
              (`HistoryFilterSidebar`) covers this on a maximized window. */}
           <button
             type="button"
             className={`dm-icon-btn history-filter-trigger${hasActiveFilters ? ' dm-icon-btn--active' : ''}`}
             onClick={() => setFilterDrawerOpen(true)}
-            title="Filtros"
-            aria-label="Abrir filtros"
+            title="Filtros y configuración"
+            aria-label="Abrir filtros y configuración"
             aria-pressed={hasActiveFilters}
           >
-            <ListFilter size={16} strokeWidth={1.5} aria-hidden="true" />
+            <Settings size={16} strokeWidth={1.5} aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -236,7 +247,13 @@ export default function HistoryView({ history }: HistoryProps) {
       </div>
 
       <DetailSidebar history={history} />
-      <HistoryFilterDrawer filters={filters} isOpen={filterDrawerOpen} onClose={() => setFilterDrawerOpen(false)} />
+      <HistoryFilterDrawer
+        filters={filters}
+        isOpen={filterDrawerOpen}
+        onClose={() => setFilterDrawerOpen(false)}
+        logsDirectoryPath={logsDirectoryPath}
+        onLogsDirectoryChange={setLogsDirectoryPath}
+      />
     </div>
   );
 }
