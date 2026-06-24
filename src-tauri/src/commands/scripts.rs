@@ -2,6 +2,7 @@ use tauri::AppHandle;
 
 use crate::error::AppError;
 use crate::services::script_fs_service::{self, ScriptFileEntry};
+use crate::services::script_log_service::{self, ScriptLogEntry, ScriptLogSummary};
 use crate::services::script_remote_service::{self, ScriptRemotePrepareResult};
 
 #[tauri::command]
@@ -103,4 +104,18 @@ pub async fn script_remote_rename(
         &new_file_name,
     )
     .await
+}
+
+/// Lists run-history summaries (no `output`) from `<scripts_dir>/outputs/`,
+/// newest first. An empty vec means no runs yet, not an error.
+#[tauri::command]
+pub async fn script_log_list(scripts_dir: String) -> Result<Vec<ScriptLogSummary>, AppError> {
+    script_log_service::list_logs(&scripts_dir).await
+}
+
+/// Reads one run-history entry's full content, including `output`. Called
+/// on demand when the user opens a Historial card, not for the whole list.
+#[tauri::command]
+pub async fn script_log_get(path: String) -> Result<ScriptLogEntry, AppError> {
+    script_log_service::get_log(&path).await
 }

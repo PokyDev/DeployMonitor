@@ -40,12 +40,12 @@ src-tauri/src/
     └── sftp.rs           # File upload/download
 ```
 
-> ⚠ **Status: aspirational.** The tree above is a target shape — `commands/instances.rs`, `commands/script_log.rs`, the entire `models/` and `ssh/` trees, and a `script-service.rs`/`script_log_service.rs` do not exist yet. The real current tree is flat:
+> ⚠ **Status: aspirational.** The tree above is a target shape — `commands/instances.rs`, `commands/script_log.rs`, the entire `models/` and `ssh/` trees, and a `script-service.rs` do not exist yet. `script_log_service.rs` is real (read-only so far — see "Script Run History" below). The real current tree is flat:
 > ```
 > src-tauri/src/
 > ├── main.rs / lib.rs / error.rs / state.rs
 > ├── commands/{monitoring,pty,scripts,ssh}.rs
-> └── services/{monitor_service,pty_service,script_fs_service,script_remote_service,ssh_connect}.rs
+> └── services/{monitor_service,pty_service,script_fs_service,script_log_service,script_remote_service,ssh_connect}.rs
 > ```
 > `AppState` (`state.rs`) only holds `pty` and `monitor` — no `db`, no `ssh_pool`. There is no `db` module and never has been — see "Script Run History" and "Monitoring Snapshots" below for why this app has no embedded database at all. Scripts are local files on disk (`script_fs_service.rs`), not a DB table. The script-remote-execution service (see "Script Remote Execution" below) is `services/script_remote_service.rs`, a sibling of `ssh_connect.rs` — not a new module under the nonexistent `ssh/` tree. `commands/instances.rs`, `instance-service.rs`, and `models/instance.rs` describe a still-undecided multi-instance future (today's MVP is single-instance per `spec-navigation.md`) — they're kept in this tree as a placeholder only; what they'd persist to is out of scope for this doc's disk-vs-DB decision and needs its own follow-up.
 
@@ -170,13 +170,15 @@ There is no `script_run` command — running a script is just `pty_write(...)` a
 
 ### Script Run History
 
-> ⚠ **Status: proposed, not implemented (2026-06-23).** Replaces the old DB-backed "Sync History" design (`sync_history_list`/`sync_history_get` against a `sync_history` table) — superseded along with the rest of the SQLite layer, see § "Script Run History — Disk Format" further down this doc. Today, script-run history is **not persisted anywhere** — output only ever exists in the terminal's xterm scrollback while the session is open.
+> ⚠ **Status: read side implemented (2026-06-24), write side still proposed.** Replaces the old DB-backed "Sync History" design (`sync_history_list`/`sync_history_get` against a `sync_history` table) — superseded along with the rest of the SQLite layer, see § "Script Run History — Disk Format" further down this doc. `script_log_list`/`script_log_get` are real (`services/script_log_service.rs`) and back the Historial view (`history.tsx` via `use-script-history.ts`) against hand-seeded `.json` files in `outputs/`. `script_log_write` is **not implemented** — nothing yet writes a new log automatically when a script finishes running; output from a live run still only exists in the terminal's xterm scrollback while the session is open. That auto-write wiring (hooking into `use-script-remote.ts`'s run-on-terminal flow) is the deliberately deferred next step.
 
-| Command | Input | Output |
-|---|---|---|
-| `script_log_write` | `ScriptLogWriteDto { script_name, status, started_at, duration_ms, exit_code, output }` | `ScriptLogSummary` |
-| `script_log_list` | `scripts_dir: String` | `Vec<ScriptLogSummary>` — newest first, no `output` field |
-| `script_log_get` | `path: String` | `ScriptLogEntry` — full entry including `output` |
+| Command | Input | Output | Status |
+|---|---|---|---|
+| `script_log_write` | `ScriptLogWriteDto { script_name, status, started_at, duration_ms, exit_code, output }` | `ScriptLogSummary` | Proposed, not implemented |
+| `script_log_list` | `scripts_dir: String` | `Vec<ScriptLogSummary>` — newest first, no `output` field | Implemented |
+| `script_log_get` | `path: String` | `ScriptLogEntry` — full entry including `output` | Implemented |
+
+`script_log_list` treats a missing `outputs/` folder as zero entries (`Ok(vec![])`), not an error — there being no run-history yet is a normal state, unlike the Scripts editor's `dir_path`, which the user actively picked and expects to exist. A single file that fails to parse is skipped (logged via `tracing::warn!`) rather than failing the whole list.
 
 `script_log_write`'s input deliberately omits `triggered_by` — Rust fills it in from the local OS session (`whoami`-equivalent) at write time, see § "Script Run History — Disk Format" below. The frontend assembles everything it can only know from watching the terminal (which script, when it started, how long it took, the exit code parsed from the OSC marker, and the output text accumulated from `pty:data` between start and that marker) and calls `script_log_write` once the run finishes; Rust adds the environment fact (who's running this OS session) and persists. This mirrors `script_fs_*`: the renderer never touches the filesystem directly, only through a typed command.
 
@@ -208,7 +210,7 @@ There is no `script_run` command — running a script is just `pty_write(...)` a
 
 ## Script Run History — Disk Format
 
-> ⚠ **Status: proposed, not implemented (2026-06-23).** No SQLite, no `sync_history` table — see "SQLite removed, disk-based JSON adopted instead" in `spec-architecture.md` for why. One JSON file per script execution, written by `script_log_service.rs`.
+> ⚠ **Status: read side implemented (2026-06-24), write side still proposed.** No SQLite, no `sync_history` table — see "SQLite removed, disk-based JSON adopted instead" in `spec-architecture.md` for why. One JSON file per script execution. `script_log_service.rs` can list and read these files today; nothing writes them yet outside of the hand-seeded mock files used to validate the read path — `script_log_write` (and wiring it into a finished run) is the deferred next step.
 
 **Location:** `<scripts_dir>/outputs/`, a subfolder of whichever directory the user has configured as their scripts root (the same `dir_path` already passed to `script_fs_list`/`script_fs_create`). `script_fs_service::list_directory` already filters to `is_file()` and skips subdirectories non-recursively, so `outputs/` is automatically invisible to the script editor's file list — no special-casing needed there.
 
@@ -228,7 +230,7 @@ There is no `script_run` command — running a script is just `pty_write(...)` a
 }
 ```
 
-`status` is `"success"` if `exit_code == 0`, else `"error"` — matches the two states in the user's ask and the existing mock UI (`src/hooks/use-mock-history.ts`'s `ExecutionResult`, which should be renamed from `'failed'` to `'error'` to match). `triggered_by` is the local OS username (`whoami`-equivalent — e.g. `std::env::var("USERNAME")` on Windows), filled in by `script_log_service.rs` at write time, not sent by the frontend — it describes who has the desktop app open, not which SSH user the script ran as remotely. `output` is the full text accumulated by the frontend from `pty:data` between the run starting and the OSC `DM-DONE` marker (see `spec-terminal.md`); stored inline rather than in a separate file since expected sizes (deploy/backup/health-check scripts) are a few KB, not megabytes — revisit only if that assumption stops holding.
+`status` is `"success"` if `exit_code == 0`, else `"error"` — matches the two states in the user's ask and the UI (`src/hooks/use-script-history.ts`'s `ExecutionStatus`, renamed from the old mock's `ExecutionResult`/`'failed'` to `'error'` to match, 2026-06-24). `triggered_by` is the local OS username (`whoami`-equivalent — e.g. `std::env::var("USERNAME")` on Windows), meant to be filled in by `script_log_write` at write time, not sent by the frontend — it describes who has the desktop app open, not which SSH user the script ran as remotely. `output` is the full text accumulated by the frontend from `pty:data` between the run starting and the OSC `DM-DONE` marker (see `spec-terminal.md`); stored inline rather than in a separate file since expected sizes (deploy/backup/health-check scripts) are a few KB, not megabytes — revisit only if that assumption stops holding.
 
 No retention policy — unlike monitoring snapshots, run history has no natural expiry; it accumulates for as long as the user keeps the scripts directory. Pagination/cleanup is a future concern, not a v1 requirement.
 

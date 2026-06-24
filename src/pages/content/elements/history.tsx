@@ -1,22 +1,21 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, ListFilter, Search, X } from 'lucide-react';
-import { buildLogs } from '../../../hooks/use-mock-history';
-import type { useMockHistory, ExecutionResult, HistoryEntry } from '../../../hooks/use-mock-history';
+import { ArrowLeft, FolderOpen, ListFilter, Search, X } from 'lucide-react';
+import type { useScriptHistory, ExecutionStatus, HistoryEntry } from '../../../hooks/use-script-history';
 import { useHistoryFilters } from '../../../hooks/use-history-filters';
 import { ExtensionIcon } from '../../../lib/script-extension';
 import HistoryFilterSidebar, { HistoryFilterDrawer } from './history-filter-sidebar';
 import HistorySlidePanel from './history-slide-panel';
 import './history.css';
 
-type History = ReturnType<typeof useMockHistory>;
+type History = ReturnType<typeof useScriptHistory>;
 
-const RESULT_BADGE: Record<ExecutionResult, { variant: string; label: string }> = {
+const RESULT_BADGE: Record<ExecutionStatus, { variant: string; label: string }> = {
   success: { variant: 'normal', label: 'Éxito' },
-  failed:  { variant: 'critical', label: 'Error' },
+  error:   { variant: 'critical', label: 'Error' },
 };
 
-function ResultBadge({ result }: { result: ExecutionResult }) {
-  const { variant, label } = RESULT_BADGE[result];
+function ResultBadge({ status }: { status: ExecutionStatus }) {
+  const { variant, label } = RESULT_BADGE[status];
   return (
     <span className={`dm-badge dm-badge--${variant}`}>
       <span className="dm-badge__pip" aria-hidden="true" />
@@ -39,7 +38,7 @@ function classifyLine(line: string): LogLineKind {
  * closing slide-out transition has content to animate away instead of
  * unmounting (and going blank) the instant `selected` clears to null. */
 function DetailSidebar({ history }: { history: History }) {
-  const { selected, close } = history;
+  const { selected, close, outputLoading } = history;
   const [lastEntry, setLastEntry] = useState<HistoryEntry | null>(null);
 
   useEffect(() => {
@@ -50,7 +49,7 @@ function DetailSidebar({ history }: { history: History }) {
   if (!entry) return null;
 
   const isOpen = !!selected;
-  const logs = buildLogs(entry);
+  const logs = entry.output !== undefined ? entry.output.split('\n') : null;
 
   return (
     <HistorySlidePanel isOpen={isOpen} onClose={close} ariaLabel={`Detalle de ejecución de ${entry.scriptName}`}>
@@ -71,7 +70,7 @@ function DetailSidebar({ history }: { history: History }) {
           </div>
           <div className="history-stat">
             <span className="history-stat__key">Estado</span>
-            <span className="history-stat__value"><ResultBadge result={entry.result} /></span>
+            <span className="history-stat__value"><ResultBadge status={entry.status} /></span>
           </div>
           <div className="history-stat">
             <span className="history-stat__key">Duración</span>
@@ -84,9 +83,15 @@ function DetailSidebar({ history }: { history: History }) {
         </div>
         <div className="dm-label" style={{ marginBottom: 8 }}>Salida de terminal</div>
         <div className="history-log-term">
-          {logs.map((line, i) => (
-            <div key={i} className={`history-log-term__line history-log-term__line--${classifyLine(line)}`}>{line}</div>
-          ))}
+          {logs === null ? (
+            <div className="history-log-term__line history-log-term__line--prompt">
+              {outputLoading ? 'Cargando salida…' : 'Sin datos de salida.'}
+            </div>
+          ) : (
+            logs.map((line, i) => (
+              <div key={i} className={`history-log-term__line history-log-term__line--${classifyLine(line)}`}>{line}</div>
+            ))
+          )}
         </div>
       </div>
     </HistorySlidePanel>
@@ -117,7 +122,7 @@ function HistoryCard({ entry, index, onOpen }: { entry: HistoryEntry; index: num
       </div>
       <div className="history-card__foot">
         <span className="history-card__date">{entry.timestamp}</span>
-        <ResultBadge result={entry.result} />
+        <ResultBadge status={entry.status} />
       </div>
     </div>
   );
@@ -135,12 +140,26 @@ function HistoryEmptyState({ onClear }: { onClear: () => void }) {
   );
 }
 
+/** Covers the three "there's no grid to show" states that didn't exist with
+ * the old hardcoded mock (always 6 entries) but are real now that the list
+ * comes from disk: still loading, a read error, or a directory with no
+ * run-history files yet. Distinct from `HistoryEmptyState`, which is only
+ * for "filters matched zero of N existing entries". */
+function HistoryStatusState({ text }: { text: string }) {
+  return (
+    <div className="history-empty">
+      <FolderOpen size={22} strokeWidth={1.5} aria-hidden="true" />
+      <span>{text}</span>
+    </div>
+  );
+}
+
 type HistoryProps = {
   history: History;
 };
 
 export default function HistoryView({ history }: HistoryProps) {
-  const { history: entries, open } = history;
+  const { history: entries, loading, error, open } = history;
   const filters = useHistoryFilters(entries);
   const { query, setQuery, filtered, filterSignature, clearFilters, hasActiveFilters } = filters;
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
@@ -198,7 +217,13 @@ export default function HistoryView({ history }: HistoryProps) {
         <HistoryFilterSidebar filters={filters} />
 
         <div className="history-main">
-          {filtered.length > 0 ? (
+          {loading ? (
+            <HistoryStatusState text="Cargando historial…" />
+          ) : error ? (
+            <HistoryStatusState text={error} />
+          ) : entries.length === 0 ? (
+            <HistoryStatusState text="Aún no hay ejecuciones registradas." />
+          ) : filtered.length > 0 ? (
             <div className="history-grid" key={filterSignature}>
               {filtered.map((entry, index) => (
                 <HistoryCard key={entry.id} entry={entry} index={index} onOpen={() => open(entry.id)} />

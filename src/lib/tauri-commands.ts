@@ -115,6 +115,33 @@ export async function scriptFsRename(path: string, newName: string): Promise<Scr
   return await invoke<ScriptFileEntry>('script_fs_rename', { path, newName });
 }
 
+export type ScriptLogStatus = 'success' | 'error';
+
+export type ScriptLogSummary = {
+  path: string;
+  script_name: string;
+  triggered_by: string;
+  status: ScriptLogStatus;
+  started_at: string;
+  duration_ms: number;
+  exit_code: number;
+};
+
+export type ScriptLogEntry = ScriptLogSummary & {
+  output: string;
+};
+
+/** Lists run-history summaries (no `output`) from `<scriptsDir>/outputs/`, newest first.
+ * Empty array if the folder doesn't exist yet — that's a normal "no runs yet" state, not an error. */
+export async function scriptLogList(scriptsDir: string): Promise<ScriptLogSummary[]> {
+  return await invoke<ScriptLogSummary[]>('script_log_list', { scriptsDir });
+}
+
+/** Reads one run-history entry's full content, including `output`. Throws { code, message } on failure. */
+export async function scriptLogGet(path: string): Promise<ScriptLogEntry> {
+  return await invoke<ScriptLogEntry>('script_log_get', { path });
+}
+
 export type ScriptRemotePrepareResult = {
   remote_path: string;
   uploaded: boolean;

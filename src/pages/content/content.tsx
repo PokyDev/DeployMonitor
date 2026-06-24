@@ -6,7 +6,7 @@ import { useNavStore } from '../../stores/use-nav-store';
 import { useSshConnection } from '../../hooks/use-ssh-connection';
 import { useMonitorStore } from '../../stores/use-monitor-store';
 import { useScriptFiles } from '../../hooks/use-script-files';
-import { useMockHistory } from '../../hooks/use-mock-history';
+import { useScriptHistory } from '../../hooks/use-script-history';
 import Overview from './elements/overview';
 import Monitor from './elements/monitor';
 import Scripts from './elements/scripts';
@@ -57,7 +57,7 @@ export default function Content() {
   }, []);
 
   const scripts = useScriptFiles();
-  const history = useMockHistory();
+  const history = useScriptHistory();
 
   // "Ejecutar" only uploads the script so far (see use-script-remote.ts) — it
   // doesn't actually run anything on the instance yet, so there's never a

@@ -1,14 +1,14 @@
 import { useCallback, useMemo, useState } from 'react';
-import type { ExecutionResult, HistoryEntry } from './use-mock-history';
+import type { ExecutionStatus, HistoryEntry } from './use-script-history';
 import { getExtensionKey, type ExtensionKey } from '../lib/script-extension';
 
-export type StatusFilter = 'all' | ExecutionResult;
+export type StatusFilter = 'all' | ExecutionStatus;
 export type SortKey = 'date-desc' | 'date-asc' | 'name-asc' | 'name-desc';
 
 export const STATUS_OPTIONS: { key: StatusFilter; label: string }[] = [
   { key: 'all',     label: 'Todos' },
   { key: 'success', label: 'Éxito' },
-  { key: 'failed',  label: 'Error' },
+  { key: 'error',   label: 'Error' },
 ];
 
 export const SORT_OPTIONS: { key: SortKey; label: string }[] = [
@@ -35,7 +35,7 @@ function sortEntries(entries: HistoryEntry[], sort: SortKey): HistoryEntry[] {
 }
 
 /** Search/filter/sort UI state for the Historial view — derives the visible
- * list from `entries` without touching use-mock-history's data/log concerns. */
+ * list from `entries` without touching use-script-history's data/log concerns. */
 export function useHistoryFilters(entries: HistoryEntry[]) {
   const [query, setQuery] = useState('');
   const [extensions, setExtensions] = useState<Set<ExtensionKey>>(new Set());
@@ -73,8 +73,8 @@ export function useHistoryFilters(entries: HistoryEntry[]) {
   }, [entries]);
 
   const statusCounts = useMemo(() => {
-    const counts: Record<StatusFilter, number> = { all: entries.length, success: 0, failed: 0 };
-    for (const entry of entries) counts[entry.result]++;
+    const counts: Record<StatusFilter, number> = { all: entries.length, success: 0, error: 0 };
+    for (const entry of entries) counts[entry.status]++;
     return counts;
   }, [entries]);
 
@@ -83,7 +83,7 @@ export function useHistoryFilters(entries: HistoryEntry[]) {
     const byTextAndFacets = entries.filter((entry) => {
       if (q && !entry.scriptName.toLowerCase().includes(q)) return false;
       if (extensions.size > 0 && !extensions.has(getExtensionKey(entry.scriptName))) return false;
-      if (status !== 'all' && entry.result !== status) return false;
+      if (status !== 'all' && entry.status !== status) return false;
       return true;
     });
     return sortEntries(byTextAndFacets, sort);

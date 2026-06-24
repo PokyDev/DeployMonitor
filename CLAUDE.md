@@ -161,10 +161,11 @@ Full spec in `docs/spec-terminal.md`. Critical rules:
 - Native `.pem` file picker via `tauri-plugin-dialog`
 - Script local FS management (create/read/write/delete/rename) + SFTP upload/delete/rename sync to the instance, keyed by file name (`script_remote_service.rs`, `use-script-remote.ts`) — see `spec-backend.md` § "Script Remote Execution"
 - Script execution on the interactive terminal (upload/verify/rename sync + run-on-terminal via the OSC end-marker) — see `spec-backend.md` § "Script Remote Execution"
+- Script run-history **read side** (2026-06-24): `script_log_list`/`script_log_get` (`script_log_service.rs`) read one-JSON-file-per-execution from `<scripts_dir>/outputs/`; the Historial view (`history.tsx`) now consumes them via `use-script-history.ts` instead of the old hardcoded `use-mock-history.ts` (removed). 6 hand-seeded `.json` files live under the configured scripts directory's `outputs/` folder so the view has real data to render. See `spec-backend.md` § "Script Run History".
 
 **Next in queue:**
 1. Settings screen
-2. Script run-history persistence — one JSON file per execution under `<scripts_dir>/outputs/`, consumed by the already-built (mock-data) Historial view (`history.tsx` / `use-mock-history.ts`) — see `spec-backend.md` § "Script Run History"
+2. Script run-history **write side** — `script_log_write`, plus wiring it into `use-script-remote.ts` so a real terminal run actually produces a new `outputs/*.json` file instead of relying on the hand-seeded mock files — see `spec-backend.md` § "Script Run History"
 3. Monitoring snapshot persistence — append-only JSONL day-files under `app_data_dir()/monitoring/`, to back the range tabs (30min/1h/6h/24h) in `monitor.tsx`, currently a "not implemented" stub — see `spec-backend.md` § "Monitoring Snapshots"
 
 > Note (2026-06-23): "Import Claude Design layouts" and "Monitoring panel" from the previous version of this list appear to already be implemented (`src/pages/landing`, `src/pages/content/elements/{monitor,overview,scripts,settings}.tsx` all exist) — worth a dedicated pass to verify and update this status list, separate from the SQLite-removal work above.
