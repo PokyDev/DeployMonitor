@@ -3,6 +3,105 @@
    History section — execution card grid + detail sidebar
    ======================== */
 
+/* ── Toolbar — search + (minimized-only) filter trigger, right side of the
+   section bar. ── */
+.history-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ── Search input — filters the grid on every keystroke (data is
+   local/in-memory, no debounce needed). ── */
+.history-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 1 240px;
+  min-width: 140px;
+}
+
+.history-search__icon {
+  position: absolute;
+  left: 12px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.history-search__input {
+  width: 100%;
+  height: 36px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 0 34px;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  transition: border-color var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.history-search__input::placeholder {
+  color: var(--text-muted);
+}
+
+.history-search__input:focus {
+  outline: none;
+  border-color: var(--color-gold);
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.14);
+}
+
+.history-search__clear {
+  position: absolute;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  animation: dm-fade-in var(--duration-fast) var(--ease-out) both;
+  transition: color var(--duration-fast) var(--ease-out), background-color var(--duration-fast) var(--ease-out);
+}
+
+.history-search__clear:hover {
+  color: var(--text-primary);
+  background: var(--bg-overlay);
+}
+
+/* ── Filter drawer trigger — hidden on a maximized window, where the
+   permanent rail (`HistoryFilterSidebar`) already covers this. Selector is
+   `button.history-filter-trigger` (not just the class) so it reliably beats
+   `.dm-icon-btn`'s `display: grid` regardless of which CSS file's import
+   happens to land later in the module graph (history.tsx imports its own
+   CSS before content.tsx imports content-shared.css). ── */
+button.history-filter-trigger {
+  display: none;
+  flex: 0 0 auto;
+  padding: 8px;
+}
+
+/* ── Layout — facet sidebar + result column. `align-items: flex-start` keeps
+   the sticky sidebar from stretching to the grid's (possibly much taller)
+   height. ── */
+.history-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-5);
+}
+
+.history-filter-sidebar {
+  flex: 0 0 200px;
+}
+
+.history-main {
+  flex: 1;
+  min-width: 0;
+}
+
 /* ── Card grid — auto-fit reflows the column count on its own as available
    width changes (maximized window, minimized window, sidebar expanded vs
    collapsed eating 164px) instead of needing per-state breakpoints. ── */
@@ -10,6 +109,24 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--space-3);
+}
+
+/* ── Empty state — shown when search/filters match nothing. ── */
+.history-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-12) var(--space-5);
+  color: var(--text-secondary);
+  text-align: center;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  animation: dm-fade-in var(--duration-base) var(--ease-out) both;
+}
+
+.history-empty svg {
+  color: var(--text-muted);
 }
 
 .history-card {
@@ -83,6 +200,12 @@
 .history-ext-icon--modal {
   width: 28px;
   height: 28px;
+}
+
+.history-ext-icon--filter {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
 }
 
 .history-ext-icon--sh {
@@ -277,6 +400,20 @@
   .history-log-term {
     height: 260px;
   }
+
+  /* Search shrinks instead of wrapping to its own row — title stays left,
+     search + filter trigger stay right, same single-row arrangement as the
+     maximized layout. The permanent rail is hidden (see
+     history-filter-sidebar.css) in favor of the trigger opening
+     `HistoryFilterDrawer`, the same slide-in shell the detail view uses. */
+  .history-search {
+    flex: 1 1 120px;
+    min-width: 90px;
+  }
+
+  button.history-filter-trigger {
+    display: grid;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -286,7 +423,9 @@
   }
 
   .history-card,
-  .history-log-term__line {
+  .history-log-term__line,
+  .history-empty,
+  .history-search__clear {
     animation: none;
   }
 }

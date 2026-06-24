@@ -1,0 +1,193 @@
+/* ========================
+   history-filter-sidebar.css
+   History section — facet sidebar (extension / status / sort)
+   ======================== */
+
+/* `position: sticky` relative to `.dashboard__content` (the actual scroll
+   container, see content.css) so filters stay reachable while the result
+   grid scrolls underneath. `align-self: flex-start` in history.css keeps it
+   from stretching to the grid's height. */
+.history-filter-sidebar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+}
+
+.history-filter-sidebar__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  font-family: var(--font-title);
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.history-filter-sidebar__head svg {
+  color: var(--color-gold);
+}
+
+/* Same "Filtros" head icon, rendered inside the mobile drawer's
+   `.history-sidebar__title` (DetailSidebar's head markup) instead. */
+.history-filter-drawer-icon {
+  color: var(--color-gold);
+}
+
+.history-filter-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* ── Extension facet chips ── */
+.history-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.history-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 11px;
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+
+.history-filter-chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.history-filter-chip__count {
+  font-family: var(--font-code);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.history-filter-chip--active {
+  animation: dm-icon-pop var(--duration-base) var(--ease-out) both;
+}
+
+.history-filter-chip--active .history-filter-chip__count {
+  color: inherit;
+  opacity: 0.75;
+}
+
+.history-filter-chip--sh.history-filter-chip--active {
+  color: var(--color-success-light);
+  background: rgba(61, 158, 104, 0.15);
+  border-color: var(--color-success-light);
+}
+
+.history-filter-chip--py.history-filter-chip--active {
+  color: var(--color-lang-py);
+  background: rgba(201, 162, 39, 0.16);
+  border-color: var(--color-lang-py);
+}
+
+.history-filter-chip--js.history-filter-chip--active {
+  color: var(--color-info-light);
+  background: rgba(40, 116, 166, 0.15);
+  border-color: var(--color-info-light);
+}
+
+.history-filter-chip--default.history-filter-chip--active {
+  color: var(--text-primary);
+  background: var(--bg-overlay);
+  border-color: var(--border-strong);
+}
+
+/* ── Segmented controls (status / sort) — same flat-swap language as
+   Monitor's range tabs, plus a pop on activation for extra feedback. ── */
+.history-segmented {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 2px;
+}
+
+.history-segmented--vertical {
+  flex-direction: column;
+}
+
+.history-segmented__tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 11px;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-out), background-color var(--duration-fast) var(--ease-out);
+}
+
+.history-segmented__tab:hover:not(.history-segmented__tab--active) {
+  color: var(--text-primary);
+}
+
+.history-segmented__tab--active {
+  background: var(--bg-overlay);
+  color: var(--text-primary);
+  animation: dm-icon-pop var(--duration-base) var(--ease-out) both;
+}
+
+.history-segmented__count {
+  font-family: var(--font-code);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ── Clear filters — only mounted while a filter is active, so the fade-in
+   marks the moment it becomes available instead of always being present. ── */
+.history-filter-sidebar__clear {
+  width: 100%;
+  justify-content: center;
+  animation: dm-fade-in var(--duration-fast) var(--ease-out) both;
+}
+
+/* Minimized window: the permanent rail gives way to `.history-filter-trigger`
+   (history.css) opening `HistoryFilterDrawer` instead — no room for a fixed
+   left column once the window shrinks. */
+@media (max-width: 760px) {
+  .history-filter-sidebar {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .history-filter-chip--active,
+  .history-segmented__tab--active,
+  .history-filter-sidebar__clear {
+    animation: none;
+  }
+}
