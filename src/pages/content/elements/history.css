@@ -3,22 +3,28 @@
    History section — execution card grid + detail sidebar
    ======================== */
 
-/* ── Toolbar — search + (minimized-only) filter trigger, right side of the
-   section bar. ── */
-.history-toolbar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
+/* ── Toolbar row — search + logs-directory field, living inside
+   `.history-main` (not `.dm-section-bar`) and sharing `.history-grid`'s exact
+   4-column template. That shared template is what guarantees the search bar
+   lines up with the left pair of cards and the directory field with the
+   right pair at any window width, instead of relying on hand-tuned
+   percentages that would drift the moment the grid's gap or column count
+   changes. ── */
+.history-toolbar-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(200px, 1fr));
+  gap: var(--space-3);
 }
 
 /* ── Search input — filters the grid on every keystroke (data is
-   local/in-memory, no debounce needed). ── */
+   local/in-memory, no debounce needed). Spans the left half (columns 1-2) of
+   `.history-toolbar-row`, mirroring the left pair of cards below. ── */
 .history-search {
   position: relative;
   display: flex;
   align-items: center;
-  flex: 0 1 240px;
-  min-width: 140px;
+  grid-column: 1 / 3;
+  min-width: 0;
 }
 
 .history-search__icon {
@@ -73,13 +79,14 @@
 }
 
 /* ── Logs-directory field — maximized-window-only inline counterpart of the
-   field `HistoryFilterDrawer` carries at minimized widths. Sized like
-   `.history-search` so the two share the toolbar row without one starving
-   the other; the input itself overflows internally (native text scroll)
-   rather than wrapping or breaking the row. ── */
+   field `HistoryFilterDrawer` carries at minimized widths. Spans the right
+   half (columns 3-4) of `.history-toolbar-row`, mirroring `.history-search`
+   on columns 1-2, so both line up with their matching pair of cards in
+   `.history-grid` below; the input itself overflows internally (native text
+   scroll) rather than wrapping or breaking the row. ── */
 .history-dir-field {
-  flex: 1 1 220px;
-  min-width: 140px;
+  grid-column: 3 / 5;
+  min-width: 0;
 }
 
 /* ── Filter drawer trigger — hidden on a maximized window, where the
@@ -110,14 +117,24 @@ button.history-filter-trigger {
 .history-main {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
-/* ── Card grid — auto-fit reflows the column count on its own as available
-   width changes (maximized window, minimized window, sidebar expanded vs
-   collapsed eating 164px) instead of needing per-state breakpoints. ── */
+/* ── Card grid — fixed at 4 columns (2 left + 2 right) on a maximized window
+   so `.history-toolbar-row` above has a stable target to align to: search
+   bar over the left pair, logs-directory field over the right pair. This
+   replaces the previous `auto-fit` behavior (column count tracking available
+   width) for maximized widths only — the media query below restores the old
+   `auto-fit` behavior at minimized widths, where there's no toolbar-row
+   alignment to preserve and 4 fixed columns wouldn't fit anyway. Below the
+   point where 4 × 200px + gaps stops fitting (app sidebar expanded + narrow
+   window), columns hit their 200px floor and the row overflows horizontally
+   rather than reflowing to fewer columns. ── */
 .history-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(4, minmax(200px, 1fr));
   gap: var(--space-3);
 }
 
@@ -363,30 +380,32 @@ button.history-filter-trigger {
   color: var(--color-gold);
 }
 
-/* ── Log terminal ── */
+/* ── Log terminal — hosts a read-only xterm.js instance (`history-log-
+   terminal.tsx`), not hand-classified `<div>` lines, so real ANSI/SGR codes
+   the script printed render exactly as they did live. `overflow: hidden`
+   instead of the old `overflow-y: auto` — xterm.js owns its own scrollback
+   and scrollbar internally, a second outer scrollbar would just double up. ── */
 .history-log-term {
   background: #0D0D0D;
   border: 1px solid #222;
   border-radius: var(--radius-lg);
   padding: var(--space-3) var(--space-4);
   height: 360px;
-  overflow-y: auto;
+  overflow: hidden;
   font-family: var(--font-code);
   font-size: 12px;
   line-height: 1.6;
 }
 
-.history-log-term__line {
-  white-space: pre-wrap;
-  word-break: break-word;
-  animation: dm-fade-in 180ms ease both;
+.history-log-term__xterm {
+  width: 100%;
+  height: 100%;
 }
 
-.history-log-term__line--out    { color: #D4D0C4; }
-.history-log-term__line--prompt { color: #8A8A8A; }
-.history-log-term__line--info   { color: #2874A6; }
-.history-log-term__line--ok     { color: var(--color-success-light); }
-.history-log-term__line--err    { color: var(--color-error-light); }
+.history-log-term__placeholder {
+  color: #8A8A8A;
+  animation: dm-fade-in 180ms ease both;
+}
 
 /* Minimized window (~700×600): the sidebar spans the full window height,
    so the log block still trades its height for the stat grid and head
@@ -411,6 +430,17 @@ button.history-filter-trigger {
     height: 260px;
   }
 
+  /* Toolbar row reverts to a plain flex row at minimized widths — the
+     4-column grid template only exists to align with `.history-grid` on a
+     maximized window, and would otherwise force a ~800px minimum width here
+     even with the directory field hidden (grid track sizing doesn't care
+     which children are visible). */
+  .history-toolbar-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
   /* Search shrinks instead of wrapping to its own row — title stays left,
      search + filter trigger stay right, same single-row arrangement as the
      maximized layout. The permanent rail is hidden (see
@@ -431,6 +461,13 @@ button.history-filter-trigger {
   button.history-filter-trigger {
     display: grid;
   }
+
+  /* Restores the pre-refactor `auto-fit` behavior at minimized widths, where
+     there's no toolbar-row alignment to preserve and a fixed 4-column grid
+     wouldn't fit regardless. */
+  .history-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -440,7 +477,7 @@ button.history-filter-trigger {
   }
 
   .history-card,
-  .history-log-term__line,
+  .history-log-term__placeholder,
   .history-empty,
   .history-search__clear {
     animation: none;

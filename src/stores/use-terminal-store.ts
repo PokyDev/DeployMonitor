@@ -29,6 +29,16 @@ type TerminalStore = SshCallbacks & {
    */
   scriptDoneCb: ((exitCode: number) => void) | null;
 
+  /**
+   * Raw `pty:data` chunks accumulated while a script run is in flight, `null`
+   * when not capturing. Kept as raw text (not xterm's rendered buffer) so any
+   * real ANSI/SGR codes the script prints survive into the stored run-history
+   * log, where the Historial detail view re-renders them through its own
+   * read-only xterm.js instance — translating to plain text here would throw
+   * that styling away before it's ever saved.
+   */
+  scriptOutputChunks: string[] | null;
+
   /** True while an SSH session is active (button-triggered or manually detected). */
   sshConnected: boolean;
   /** True while waiting for pty:data patterns that confirm SSH connected/failed. */
@@ -69,6 +79,10 @@ type TerminalStore = SshCallbacks & {
   writeSystemMessage: (text: string) => void;
   /** Registers/clears the one-shot script-completion callback. */
   registerScriptDoneCallback: (cb: ((exitCode: number) => void) | null) => void;
+  /** Starts capturing raw pty:data chunks into scriptOutputChunks. */
+  startScriptCapture: () => void;
+  /** Stops capturing, clears the buffer, and returns the joined text. */
+  stopScriptCapture: () => string;
 };
 
 export const useTerminalStore = create<TerminalStore>((set, get) => ({
@@ -77,6 +91,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
   locked: true,
   pendingOutput: [],
   scriptDoneCb: null,
+  scriptOutputChunks: null,
 
   sshConnected: false,
   sshDetecting: false,
@@ -100,6 +115,10 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       if (state.locked) {
         state.pendingOutput.push(event.payload);
         return;
+      }
+
+      if (state.scriptOutputChunks) {
+        state.scriptOutputChunks.push(event.payload);
       }
 
       // SSH lifecycle detection.
@@ -230,6 +249,14 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
   },
 
   registerScriptDoneCallback: (cb) => set({ scriptDoneCb: cb }),
+
+  startScriptCapture: () => set({ scriptOutputChunks: [] }),
+
+  stopScriptCapture: () => {
+    const chunks = get().scriptOutputChunks ?? [];
+    set({ scriptOutputChunks: null });
+    return chunks.join('');
+  },
 }));
 
 /**
@@ -258,17 +285,28 @@ export function waitForUnlock(timeoutMs = 20000): Promise<void> {
   });
 }
 
+/** Strips the invisible OSC 633 completion marker out of captured script
+ * output — it's a signaling mechanism for the frontend, never real log
+ * content. Matches the exact sequence `runRemoteScript` appends below. */
+function stripDoneMarker(text: string): string {
+  return text.replace(/\x1b\]633;DM-DONE;-?\d+\x07/, '');
+}
+
+export type RemoteScriptResult = { exitCode: number; output: string };
+
 /**
  * Sends `bash <remotePath>` to the already-open interactive PTY, followed by
  * an invisible OSC 633 marker that reports the exit code once the script
  * finishes — see `spec-terminal.md` § "Architecture Decision: script
- * execution stays on the interactive channel". Resolves with the exit code,
- * or rejects if the SSH session drops before the marker arrives (the script
- * run is considered lost, not just slow — there is no other timeout here,
- * since a deploy script may legitimately run for a long time).
+ * execution stays on the interactive channel". Resolves with the exit code
+ * and the raw `pty:data` text accumulated between sending the command and
+ * that marker (for `script_log_write`, see `spec-backend.md` § "Script Run
+ * History"), or rejects if the SSH session drops before the marker arrives
+ * (the script run is considered lost, not just slow — there is no other
+ * timeout here, since a deploy script may legitimately run for a long time).
  */
-export function runRemoteScript(remotePath: string): Promise<number> {
-  return new Promise<number>((resolve, reject) => {
+export function runRemoteScript(remotePath: string): Promise<RemoteScriptResult> {
+  return new Promise<RemoteScriptResult>((resolve, reject) => {
     const store = useTerminalStore.getState();
     if (!store.sshConnected) {
       reject(new Error('SSH_CONNECTION_LOST'));
@@ -287,15 +325,18 @@ export function runRemoteScript(remotePath: string): Promise<number> {
     };
 
     useTerminalStore.getState().registerScriptDoneCallback((exitCode) => {
-      settle(() => resolve(exitCode));
+      const output = stripDoneMarker(useTerminalStore.getState().stopScriptCapture());
+      settle(() => resolve({ exitCode, output }));
     });
 
     unsub = useTerminalStore.subscribe((state, prev) => {
       if (prev.sshConnected && !state.sshConnected) {
+        useTerminalStore.getState().stopScriptCapture();
         settle(() => reject(new Error('SSH_CONNECTION_LOST')));
       }
     });
 
+    useTerminalStore.getState().startScriptCapture();
     const command = `bash ${remotePath}; printf '\\033]633;DM-DONE;%s\\007' "$?"\r`;
     void useTerminalStore.getState().write(command);
   });

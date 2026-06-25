@@ -143,6 +143,27 @@ export async function scriptLogGet(path: string): Promise<ScriptLogEntry> {
   return await invoke<ScriptLogEntry>('script_log_get', { path });
 }
 
+/** Writes one run-history entry to `outputsDir` once a terminal-run script finishes.
+ * `status`/`triggered_by` are derived/resolved on the Rust side, not sent here.
+ * Throws { code, message } on failure (e.g. SCRIPT_LOG_WRITE_FAILED). */
+export async function scriptLogWrite(
+  outputsDir: string,
+  scriptName: string,
+  startedAt: string,
+  durationMs: number,
+  exitCode: number,
+  output: string,
+): Promise<ScriptLogSummary> {
+  return await invoke<ScriptLogSummary>('script_log_write', {
+    outputsDir,
+    scriptName,
+    startedAt,
+    durationMs,
+    exitCode,
+    output,
+  });
+}
+
 export type ScriptRemotePrepareResult = {
   remote_path: string;
   uploaded: boolean;

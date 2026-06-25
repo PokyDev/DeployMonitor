@@ -129,6 +129,7 @@ export function useScriptHistory() {
     history: entries,
     loading,
     error,
+    refresh,
     selected,
     outputLoading,
     open,

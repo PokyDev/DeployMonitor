@@ -79,7 +79,7 @@ export default function Content() {
       section = <Monitor connection={connection} />;
       break;
     case 'scripts':
-      section = <Scripts scripts={scripts} connection={connection} />;
+      section = <Scripts scripts={scripts} connection={connection} logsDirectoryPath={history.logsDirectoryPath} />;
       break;
     case 'history':
       section = <HistoryView history={history} />;

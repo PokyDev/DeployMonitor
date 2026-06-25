@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import {
+  scriptLogWrite,
   scriptRemoteDelete,
   scriptRemotePrepare,
   scriptRemoteRename,
@@ -29,6 +30,8 @@ function mapErrorCode(code: string, raw: string): string {
       return `No se pudo eliminar el script de la instancia: ${raw}`;
     case 'REMOTE_RENAME_FAILED':
       return `No se pudo renombrar el script en la instancia: ${raw}`;
+    case 'SCRIPT_LOG_WRITE_FAILED':
+      return `No se pudo guardar el registro de ejecución: ${raw}`;
     case 'SSH_HOST_UNREACHABLE':
       return `Host inalcanzable. Verifica la IP/dominio y el puerto: ${raw}`;
     case 'SSH_TIMEOUT':
@@ -59,8 +62,16 @@ function mapErrorCode(code: string, raw: string): string {
  * `status` is a single slot, not a queue — a new `executeScript` call always
  * replaces whatever is currently shown (mirrors `pendingDeletePath` in
  * `use-script-files.ts`), which is what keeps the status card from spamming.
+ *
+ * Once a run actually completes (not lost to a dropped SSH session),
+ * `executeScript` also writes a run-history entry via `scriptLogWrite` —
+ * fire-and-forget, same as `cleanupRemoteCopy`/`renameRemoteCopy` below, so a
+ * failure to persist the log never changes the success/error status already
+ * shown for the run itself. `logsDirectoryPath` is the user-configured
+ * Historial folder (`use-script-history.ts`); an empty value just skips the
+ * write — there's nowhere to put it yet.
  */
-export function useScriptRemote(connection: Connection) {
+export function useScriptRemote(connection: Connection, logsDirectoryPath: string) {
   const [status, setStatus] = useState<ScriptActionStatus | null>(null);
   // Bumped on every fresh executeScript() call. The card component keys off
   // this so a re-run on the same path always mounts fresh — even if the
@@ -126,7 +137,9 @@ export function useScriptRemote(connection: Connection) {
             await waitForUnlock();
           }
 
-          const exitCode = await runRemoteScript(result.remote_path);
+          const startedAt = new Date().toISOString();
+          const startedAtMs = performance.now();
+          const { exitCode, output } = await runRemoteScript(result.remote_path);
           setStatus({
             kind: exitCode === 0 ? 'success' : 'error',
             id: runId,
@@ -136,6 +149,19 @@ export function useScriptRemote(connection: Connection) {
                 ? 'Script ejecutado correctamente.'
                 : `El script terminó con error (código ${exitCode}).`,
           });
+
+          if (logsDirectoryPath) {
+            const durationMs = Math.round(performance.now() - startedAtMs);
+            scriptLogWrite(logsDirectoryPath, script.name, startedAt, durationMs, exitCode, output).catch(
+              (logErr) => {
+                const e = logErr as { code?: string; message?: string };
+                console.error(
+                  'No se pudo guardar el registro de ejecución:',
+                  mapErrorCode(e.code ?? '', e.message ?? String(logErr)),
+                );
+              },
+            );
+          }
         } catch (runErr) {
           const message =
             runErr instanceof Error && runErr.message === 'SSH_CONNECTION_LOST'
@@ -155,7 +181,7 @@ export function useScriptRemote(connection: Connection) {
         unlisten();
       }
     },
-    [connection, status],
+    [connection, status, logsDirectoryPath],
   );
 
   // Best-effort remote cleanup for local script deletion. The remote file is

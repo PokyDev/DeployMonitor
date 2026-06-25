@@ -120,3 +120,29 @@ pub async fn script_log_list(outputs_dir: String) -> Result<Vec<ScriptLogSummary
 pub async fn script_log_get(path: String) -> Result<ScriptLogEntry, AppError> {
     script_log_service::get_log(&path).await
 }
+
+/// Writes one run-history entry once a terminal-run script finishes. Called
+/// by the frontend after `runRemoteScript`'s exit-code promise resolves —
+/// `outputs_dir` is the user-configured Historial folder (no shared state to
+/// read it from, see `spec-backend.md` § "Global App State"). `status` and
+/// `triggered_by` are intentionally not accepted here; the service derives
+/// them itself (see `script_log_service::write_log`).
+#[tauri::command]
+pub async fn script_log_write(
+    outputs_dir: String,
+    script_name: String,
+    started_at: String,
+    duration_ms: u64,
+    exit_code: i32,
+    output: String,
+) -> Result<ScriptLogSummary, AppError> {
+    script_log_service::write_log(
+        &outputs_dir,
+        &script_name,
+        &started_at,
+        duration_ms,
+        exit_code,
+        &output,
+    )
+    .await
+}

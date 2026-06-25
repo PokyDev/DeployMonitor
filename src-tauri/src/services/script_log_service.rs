@@ -93,6 +93,66 @@ pub async fn get_log(path: &str) -> Result<ScriptLogEntry, AppError> {
     read_log(path).await
 }
 
+/// Writes one run-history entry as `<outputs_dir>/<started_at>__<script_name>.json`
+/// (`started_at` with `:` replaced by `-`, matching the format `list_logs` already
+/// expects). `status` is derived from `exit_code` here — the single source of
+/// truth, never trusted from the caller — and `triggered_by` is resolved from the
+/// local OS session, not passed in: it describes who has the desktop app open, not
+/// which SSH user the script ran as remotely. `outputs_dir` is created if it
+/// doesn't exist yet, since (unlike the Scripts editor's directory) the user may
+/// have configured a logs folder before ever running a script.
+pub async fn write_log(
+    outputs_dir: &str,
+    script_name: &str,
+    started_at: &str,
+    duration_ms: u64,
+    exit_code: i32,
+    output: &str,
+) -> Result<ScriptLogSummary, AppError> {
+    let status = if exit_code == 0 {
+        ScriptLogStatus::Success
+    } else {
+        ScriptLogStatus::Error
+    };
+    let triggered_by = std::env::var("USERNAME")
+        .or_else(|_| std::env::var("USER"))
+        .unwrap_or_else(|_| "unknown".to_string());
+
+    fs::create_dir_all(outputs_dir)
+        .await
+        .map_err(|e| AppError::ScriptLogWriteFailed(e.to_string()))?;
+
+    let file_name = format!("{}__{}.json", started_at.replace(':', "-"), script_name);
+    let path = std::path::Path::new(outputs_dir).join(&file_name);
+    let path_str = path.to_string_lossy().into_owned();
+
+    let entry = ScriptLogEntry {
+        script_name: script_name.to_string(),
+        triggered_by,
+        status,
+        started_at: started_at.to_string(),
+        duration_ms,
+        exit_code,
+        output: output.to_string(),
+    };
+
+    let bytes = serde_json::to_vec_pretty(&entry)
+        .map_err(|e| AppError::ScriptLogWriteFailed(e.to_string()))?;
+    fs::write(&path, bytes)
+        .await
+        .map_err(|e| AppError::ScriptLogWriteFailed(e.to_string()))?;
+
+    Ok(ScriptLogSummary {
+        path: path_str,
+        script_name: entry.script_name,
+        triggered_by: entry.triggered_by,
+        status: entry.status,
+        started_at: entry.started_at,
+        duration_ms: entry.duration_ms,
+        exit_code: entry.exit_code,
+    })
+}
+
 async fn read_log(path: &str) -> Result<ScriptLogEntry, AppError> {
     let bytes = fs::read(path).await.map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {

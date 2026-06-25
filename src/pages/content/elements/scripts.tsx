@@ -501,9 +501,10 @@ function CrossfadeSwap<K extends string>({
 type ScriptsProps = {
   scripts: Scripts;
   connection: Connection;
+  logsDirectoryPath: string;
 };
 
-export default function Scripts({ scripts, connection }: ScriptsProps) {
+export default function Scripts({ scripts, connection, logsDirectoryPath }: ScriptsProps) {
   const {
     directoryPath,
     setDirectoryPath,
@@ -543,7 +544,7 @@ export default function Scripts({ scripts, connection }: ScriptsProps) {
     dismissStatus,
     cleanupRemoteCopy,
     renameRemoteCopy,
-  } = useScriptRemote(connection);
+  } = useScriptRemote(connection, logsDirectoryPath);
 
   // Local rename is committed first; the remote copy (if any — see
   // `renameRemoteCopy`, a no-op when the script was never uploaded) is only
