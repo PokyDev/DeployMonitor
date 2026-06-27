@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { LazyStore } from '@tauri-apps/plugin-store';
-import { scriptLogGet, scriptLogList, type ScriptLogSummary } from '../lib/tauri-commands';
+import { scriptLogDelete, scriptLogGet, scriptLogList, type ScriptLogSummary } from '../lib/tauri-commands';
 import { formatDuration, formatTimestamp } from '../lib/formatters';
 
 export type ExecutionStatus = 'success' | 'error';
@@ -54,6 +54,8 @@ export function useScriptHistory() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [outputs, setOutputs] = useState<Record<string, string>>({});
   const [outputLoading, setOutputLoading] = useState(false);
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const setLogsDirectoryPath = useCallback((value: string) => {
     setLogsDirectoryPathState(value);
@@ -122,6 +124,45 @@ export function useScriptHistory() {
 
   const close = useCallback(() => setSelectedId(null), []);
 
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+  }, []);
+
+  const addToSelection = useCallback((ids: string[]) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+  }, []);
+
+  const deleteSelected = useCallback(
+    async (dir: string) => {
+      const ids = [...selectedIds];
+      await Promise.all(ids.map((id) => scriptLogDelete(id)));
+      setSelectedIds(new Set());
+      await refresh(dir);
+    },
+    [selectedIds, refresh],
+  );
+
+  const deleteSingle = useCallback(
+    async (id: string, dir: string) => {
+      await scriptLogDelete(id);
+      await refresh(dir);
+    },
+    [refresh],
+  );
+
   const selectedSummary = entries.find((e) => e.id === selectedId) ?? null;
   const selected = selectedSummary ? { ...selectedSummary, output: outputs[selectedSummary.id] } : null;
 
@@ -136,5 +177,11 @@ export function useScriptHistory() {
     close,
     logsDirectoryPath,
     setLogsDirectoryPath,
+    selectedIds,
+    toggleSelect,
+    clearSelection,
+    addToSelection,
+    deleteSelected,
+    deleteSingle,
   };
 }

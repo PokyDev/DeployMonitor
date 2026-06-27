@@ -157,6 +157,7 @@ button.history-filter-trigger {
 }
 
 .history-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
@@ -173,6 +174,122 @@ button.history-filter-trigger {
 .history-card:hover {
   background: var(--bg-elevated);
   border-color: var(--border-default);
+}
+
+.history-card--selected {
+  border-color: var(--color-gold);
+  background: rgba(212, 175, 55, 0.05);
+}
+
+.history-card--selected:hover {
+  background: rgba(212, 175, 55, 0.08);
+}
+
+/* ── Selection checkbox — positioned top-right, hidden until hover/selected ── */
+.history-card__select {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--color-ink);
+  cursor: pointer;
+  opacity: 0;
+  z-index: 1;
+  transition:
+    opacity var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
+}
+
+.history-card:hover .history-card__select,
+.history-card--selected .history-card__select {
+  opacity: 1;
+}
+
+.history-card--selected .history-card__select {
+  border-color: var(--color-gold);
+  background: var(--color-gold);
+}
+
+/* ── Selection action bar — shown when one or more cards are selected ── */
+.history-selection-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  animation: dm-fade-in var(--duration-fast) var(--ease-out) both;
+}
+
+.history-selection-bar__count {
+  flex: 1;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* ── Context menu — fixed-positioned, appears at cursor on right-click ── */
+.history-ctx-menu {
+  position: fixed;
+  z-index: 200;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  min-width: 168px;
+  padding: var(--space-1);
+  animation: dm-fade-in var(--duration-fast) var(--ease-out) both;
+}
+
+.history-ctx-menu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  text-align: left;
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+.history-ctx-menu__item--destructive {
+  color: var(--color-error-light);
+}
+
+.history-ctx-menu__item--destructive:hover {
+  background: rgba(196, 57, 77, 0.1);
+}
+
+/* ── Drag-to-select overlay — full-viewport fixed layer, pointer-events: none
+   so underlying elements still receive pointer events during the drag. The rect
+   child is positioned in client-coordinate space (style.left/top from the hook)
+   so no offset adjustment is needed. z-index 150: above regular content and the
+   detail sidebar (80/81), below the context menu (200) and titlebar (1000). ── */
+.history-drag-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  pointer-events: none;
+}
+
+.history-drag-overlay__rect {
+  position: absolute;
+  border: 1px solid var(--color-gold);
+  background: rgba(212, 175, 55, 0.08);
+  border-radius: var(--radius-sm);
 }
 
 .history-card:focus-visible {
@@ -488,14 +605,17 @@ button.history-filter-trigger {
 
 @media (prefers-reduced-motion: reduce) {
   .history-sidebar-overlay,
-  .history-sidebar {
+  .history-sidebar,
+  .history-card__select {
     transition: none;
   }
 
   .history-card,
   .history-log-term__placeholder,
   .history-empty,
-  .history-search__clear {
+  .history-search__clear,
+  .history-selection-bar,
+  .history-ctx-menu {
     animation: none;
   }
 }

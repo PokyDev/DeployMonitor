@@ -153,6 +153,13 @@ pub async fn write_log(
     })
 }
 
+/// Permanently removes one run-history log file by its absolute path.
+pub async fn delete_log(path: &str) -> Result<(), AppError> {
+    fs::remove_file(path)
+        .await
+        .map_err(|e| AppError::ScriptLogDeleteFailed(e.to_string()))
+}
+
 async fn read_log(path: &str) -> Result<ScriptLogEntry, AppError> {
     let bytes = fs::read(path).await.map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {

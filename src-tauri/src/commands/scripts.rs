@@ -143,6 +143,13 @@ pub async fn script_log_get(path: String) -> Result<ScriptLogEntry, AppError> {
     script_log_service::get_log(&path).await
 }
 
+/// Permanently deletes one run-history log file by its absolute path. Called
+/// when the user removes a log entry (or a batch of entries) from Historial.
+#[tauri::command]
+pub async fn script_log_delete(path: String) -> Result<(), AppError> {
+    script_log_service::delete_log(&path).await
+}
+
 /// Writes one run-history entry once a terminal-run script finishes. Called
 /// by the frontend after `runRemoteScript`'s exit-code promise resolves —
 /// `outputs_dir` is the user-configured Historial folder (no shared state to

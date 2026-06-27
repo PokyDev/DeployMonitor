@@ -1,12 +1,15 @@
-import { useEffect, useState } from 'react';
-import { ArrowLeft, FolderOpen, Search, Settings, X } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { ArrowLeft, Check, FolderOpen, Search, Settings, Trash2, X } from 'lucide-react';
 import type { useScriptHistory, ExecutionStatus, HistoryEntry } from '../../../hooks/use-script-history';
 import { useHistoryFilters } from '../../../hooks/use-history-filters';
+import { useDragSelect } from '../../../hooks/use-drag-select';
 import { ExtensionIcon } from '../../../lib/script-extension';
 import DirectoryPathField from './directory-path-field';
 import HistoryFilterSidebar, { HistoryFilterDrawer } from './history-filter-sidebar';
 import HistorySlidePanel from './history-slide-panel';
 import HistoryLogTerminal from './history-log-terminal';
+import HistoryContextMenu from './history-context-menu';
+import HistoryDragOverlay from './history-drag-overlay';
 import './history.css';
 
 type History = ReturnType<typeof useScriptHistory>;
@@ -90,14 +93,30 @@ function DetailSidebar({ history }: { history: History }) {
 /** `index` only drives the entrance stagger delay (capped so long lists
  * don't feel sluggish) — the grid is remounted by filter signature, so this
  * replays every time the visible set changes instead of just on first paint. */
-function HistoryCard({ entry, index, onOpen }: { entry: HistoryEntry; index: number; onOpen: () => void }) {
+function HistoryCard({
+  entry,
+  index,
+  isSelected,
+  onOpen,
+  onToggleSelect,
+  onContextMenu,
+}: {
+  entry: HistoryEntry;
+  index: number;
+  isSelected: boolean;
+  onOpen: () => void;
+  onToggleSelect: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+}) {
   return (
     <div
       role="button"
       tabIndex={0}
-      className="history-card"
+      className={`history-card${isSelected ? ' history-card--selected' : ''}`}
       style={{ animationDelay: `${Math.min(index, 8) * 30}ms` }}
+      data-entry-id={entry.id}
       onClick={onOpen}
+      onContextMenu={onContextMenu}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
@@ -105,6 +124,19 @@ function HistoryCard({ entry, index, onOpen }: { entry: HistoryEntry; index: num
         }
       }}
     >
+      <button
+        type="button"
+        className="history-card__select"
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleSelect();
+        }}
+        aria-label={isSelected ? 'Deseleccionar' : 'Seleccionar'}
+        aria-pressed={isSelected}
+        title={isSelected ? 'Deseleccionar' : 'Seleccionar'}
+      >
+        {isSelected && <Check size={12} strokeWidth={2.5} aria-hidden="true" />}
+      </button>
       <div className="history-card__head">
         <ExtensionIcon scriptName={entry.scriptName} />
         <span className="history-card__name" title={entry.scriptName}>{entry.scriptName}</span>
@@ -113,6 +145,31 @@ function HistoryCard({ entry, index, onOpen }: { entry: HistoryEntry; index: num
         <span className="history-card__date">{entry.timestamp}</span>
         <ResultBadge status={entry.status} />
       </div>
+    </div>
+  );
+}
+
+function HistorySelectionBar({
+  count,
+  onClear,
+  onDelete,
+}: {
+  count: number;
+  onClear: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="history-selection-bar">
+      <span className="history-selection-bar__count">
+        {count} seleccionado{count !== 1 ? 's' : ''}
+      </span>
+      <button type="button" className="dm-btn dm-btn--ghost dm-btn--sm" onClick={onClear}>
+        Deseleccionar
+      </button>
+      <button type="button" className="dm-btn dm-btn--danger dm-btn--sm" onClick={onDelete}>
+        <Trash2 size={13} strokeWidth={1.5} aria-hidden="true" />
+        Eliminar
+      </button>
     </div>
   );
 }
@@ -148,10 +205,40 @@ type HistoryProps = {
 };
 
 export default function HistoryView({ history }: HistoryProps) {
-  const { history: entries, loading, error, refresh, logsDirectoryPath, open, setLogsDirectoryPath } = history;
+  const {
+    history: entries,
+    loading,
+    error,
+    refresh,
+    logsDirectoryPath,
+    open,
+    selected,
+    setLogsDirectoryPath,
+    selectedIds,
+    toggleSelect,
+    clearSelection,
+    addToSelection,
+    deleteSelected,
+    deleteSingle,
+  } = history;
   const filters = useHistoryFilters(entries);
   const { query, setQuery, filtered, filterSignature, clearFilters, hasActiveFilters } = filters;
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    label: string;
+    onConfirm: () => void;
+  } | null>(null);
+
+  const handleDragEnd = useCallback((ids: string[]) => {
+    addToSelection(ids);
+  }, [addToSelection]);
+
+  const { isDragging, dragRect, liveIds } = useDragSelect({
+    enabled: selected === null && !filterDrawerOpen,
+    onDragEnd: handleDragEnd,
+  });
 
   // `history` (the hook) lives in the parent (`content.tsx`) and outlives this
   // view's own mount/unmount as the user switches sections, so its one-time
@@ -162,6 +249,20 @@ export default function HistoryView({ history }: HistoryProps) {
     void refresh(logsDirectoryPath);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function handleCardContextMenu(e: React.MouseEvent, cardId: string) {
+    e.preventDefault();
+    const isGroupDelete = selectedIds.has(cardId);
+    const count = isGroupDelete ? selectedIds.size : 1;
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      label: count > 1 ? `Eliminar ${count} seleccionados` : 'Eliminar',
+      onConfirm: isGroupDelete
+        ? () => { void deleteSelected(logsDirectoryPath); }
+        : () => { void deleteSingle(cardId, logsDirectoryPath); },
+    });
+  }
 
   return (
     <div className="dashboard__content-inner dm-section">
@@ -231,6 +332,14 @@ export default function HistoryView({ history }: HistoryProps) {
             />
           </div>
 
+          {selectedIds.size > 0 && (
+            <HistorySelectionBar
+              count={selectedIds.size}
+              onClear={clearSelection}
+              onDelete={() => { void deleteSelected(logsDirectoryPath); }}
+            />
+          )}
+
           {loading ? (
             <HistoryStatusState text="Cargando historial…" />
           ) : error ? (
@@ -240,7 +349,15 @@ export default function HistoryView({ history }: HistoryProps) {
           ) : filtered.length > 0 ? (
             <div className="history-grid" key={filterSignature}>
               {filtered.map((entry, index) => (
-                <HistoryCard key={entry.id} entry={entry} index={index} onOpen={() => open(entry.id)} />
+                <HistoryCard
+                  key={entry.id}
+                  entry={entry}
+                  index={index}
+                  isSelected={selectedIds.has(entry.id) || liveIds.has(entry.id)}
+                  onOpen={() => open(entry.id)}
+                  onToggleSelect={() => toggleSelect(entry.id)}
+                  onContextMenu={(e) => handleCardContextMenu(e, entry.id)}
+                />
               ))}
             </div>
           ) : (
@@ -257,6 +374,16 @@ export default function HistoryView({ history }: HistoryProps) {
         logsDirectoryPath={logsDirectoryPath}
         onLogsDirectoryChange={setLogsDirectoryPath}
       />
+      {contextMenu && (
+        <HistoryContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          label={contextMenu.label}
+          onConfirm={contextMenu.onConfirm}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+      {isDragging && dragRect && <HistoryDragOverlay dragRect={dragRect} />}
     </div>
   );
 }

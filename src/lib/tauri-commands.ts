@@ -143,6 +143,12 @@ export async function scriptLogGet(path: string): Promise<ScriptLogEntry> {
   return await invoke<ScriptLogEntry>('script_log_get', { path });
 }
 
+/** Permanently deletes one run-history log file by its absolute path.
+ * Throws { code, message } on failure (e.g. SCRIPT_LOG_DELETE_FAILED). */
+export async function scriptLogDelete(path: string): Promise<void> {
+  await invoke('script_log_delete', { path });
+}
+
 /** Writes one run-history entry to `outputsDir` once a terminal-run script finishes.
  * `status`/`triggered_by` are derived/resolved on the Rust side, not sent here.
  * Throws { code, message } on failure (e.g. SCRIPT_LOG_WRITE_FAILED). */

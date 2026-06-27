@@ -215,6 +215,7 @@ pub struct ScriptSyncResult {
 ///  - Scripts present locally but missing (or with differing content) on the
 ///    remote are uploaded.
 ///  - Scripts present remotely but absent locally are deleted.
+///
 /// Opens a single SFTP session for all operations. Individual file failures
 /// are skipped rather than aborting the whole sync — the caller receives a
 /// summary of what succeeded.
