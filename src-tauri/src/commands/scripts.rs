@@ -3,7 +3,7 @@ use tauri::AppHandle;
 use crate::error::AppError;
 use crate::services::script_fs_service::{self, ScriptFileEntry};
 use crate::services::script_log_service::{self, ScriptLogEntry, ScriptLogSummary};
-use crate::services::script_remote_service::{self, ScriptRemotePrepareResult};
+use crate::services::script_remote_service::{self, ScriptRemotePrepareResult, ScriptSyncResult};
 
 #[tauri::command]
 pub async fn script_fs_list(dir_path: String) -> Result<Vec<ScriptFileEntry>, AppError> {
@@ -102,6 +102,28 @@ pub async fn script_remote_rename(
         port.unwrap_or(22),
         &old_file_name,
         &new_file_name,
+    )
+    .await
+}
+
+/// Synchronises remote `.deploy-monitor/scripts/` to exactly match the local
+/// `scripts_dir` — uploads missing or changed scripts, deletes orphans.
+/// Non-fatal per-file failures are silently skipped; only connection-level
+/// errors return `Err`. Called once per SSH connection (button or manual).
+#[tauri::command]
+pub async fn script_sync(
+    pem_path: String,
+    user: String,
+    host: String,
+    port: Option<u16>,
+    scripts_dir: String,
+) -> Result<ScriptSyncResult, AppError> {
+    script_remote_service::sync_scripts(
+        &pem_path,
+        &user,
+        &host,
+        port.unwrap_or(22),
+        &scripts_dir,
     )
     .await
 }

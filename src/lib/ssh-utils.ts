@@ -72,6 +72,28 @@ export function buildSshConnectedBanner(user: string, host: string): string {
 export const SSH_DISCONNECTED_BANNER =
   `\r\n${GOLD}─── Session closed ────────────────────────────────${RESET}\r\n`;
 
+const GREEN = '\x1b[32m';
+
+/** Injected into xterm immediately after the SSH connection banner. */
+export const SYNC_INIT_MSG =
+  `\r\n${GOLD}─── Iniciando sincronización de scripts ───────────────${RESET}\r\n`;
+
+/** Follows SYNC_INIT_MSG while the `script_sync` command is in flight. */
+export const SYNC_PROGRESS_MSG = `${GOLD}    Sincronizando...${RESET}\r\n`;
+
+/** Injected into xterm once `script_sync` resolves successfully. */
+export function buildSyncCompleteBanner(uploaded: number, deleted: number): string {
+  const detail =
+    uploaded > 0 || deleted > 0
+      ? ` (${uploaded} subido${uploaded !== 1 ? 's' : ''}, ${deleted} eliminado${deleted !== 1 ? 's' : ''})`
+      : '';
+  return `\r\n${GREEN}─── ✓ Sincronización Completada${detail} ───────────────${RESET}\r\n`;
+}
+
+/** Injected into xterm when `script_sync` throws — non-fatal, sync continues best-effort. */
+export const SYNC_ERROR_MSG =
+  `\r\n\x1b[31m─── ✗ Sincronización falló — los scripts remotos pueden estar desactualizados${RESET}\r\n`;
+
 export type SshOutputSignal = 'connected' | 'failed' | 'disconnected' | null;
 
 /**

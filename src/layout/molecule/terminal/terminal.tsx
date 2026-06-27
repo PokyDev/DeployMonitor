@@ -232,6 +232,9 @@ export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) 
     let inputBufferTrusted = true;
 
     term.onData((data) => {
+      // Block all input while the post-connection script sync is running.
+      if (useTerminalStore.getState().syncLocked) return;
+
       // Detect Enter in all forms xterm.js may send (\r, \n, or \r\n as a single event).
       if (data === '\r' || data === '\n' || data === '\r\n') {
         const trimmed = inputBuffer.trim();
@@ -333,6 +336,12 @@ export default function Terminal({ expanded, onToggleExpanded }: TerminalProps) 
       const fitAddon = fitAddonRef.current;
       const term = termRef.current;
       if (!fitAddon || !term) return;
+      // Skip when the container has no visible dimensions (e.g. panel collapsed).
+      // Fitting to zero/tiny size sends a spurious resize to the local shell which,
+      // on Windows (PowerShell), emits a full clear-screen sequence that wipes the
+      // terminal scrollback — deleting sync messages and other system output.
+      // The observer fires again when the panel re-expands to valid dimensions.
+      if (container.offsetWidth === 0 || container.offsetHeight === 0) return;
       fitAddon.fit();
       void useTerminalStore.getState().resize(term.cols, term.rows);
     });

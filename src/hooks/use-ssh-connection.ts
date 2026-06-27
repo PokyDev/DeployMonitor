@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { LazyStore } from '@tauri-apps/plugin-store';
-import { sshTestConnection } from '../lib/tauri-commands';
+import { scriptSync, sshTestConnection } from '../lib/tauri-commands';
 import {
   parseSshCommand,
   extractPemDir,
@@ -8,6 +8,10 @@ import {
   buildSshCommandWithKeepalive,
   hasKeepaliveFlag,
   SSH_DISCONNECTED_BANNER,
+  SYNC_INIT_MSG,
+  SYNC_PROGRESS_MSG,
+  buildSyncCompleteBanner,
+  SYNC_ERROR_MSG,
 } from '../lib/ssh-utils';
 import { useTerminalStore, waitForUnlock } from '../stores/use-terminal-store';
 import { useDashboardStore } from '../stores/use-dashboard-store';
@@ -16,6 +20,10 @@ import { useDashboardStore } from '../stores/use-dashboard-store';
 // the connection state (stage, log, info) is session-only and intentionally
 // not stored here.
 const connectionStore = new LazyStore('connection-settings.json');
+
+// Read-only access to the scripts directory path — used by the post-connection
+// sync. The scripts hook owns this store; we only ever read `directoryPath`.
+const scriptsSettingsStore = new LazyStore('scripts-settings.json');
 
 export type ConnectionStage = 'idle' | 'connecting' | 'testing' | 'online' | 'verified' | 'error';
 
@@ -112,6 +120,46 @@ export function useSshConnection() {
       setLog([]);
       termStore.writeSystemMessage(buildSshConnectedBanner(user, host));
       termStore.registerSshCallbacks({ sshConnectedCb: null, sshFailedCb: null });
+
+      // Fire-and-forget: sync remote scripts to match local after every
+      // successful connection (button or manual). Blocks terminal input while
+      // running via `syncLocked`. PTY output (remote MOTD, shell prompt) is
+      // buffered during the sync and flushed AFTER the completion/error message
+      // so the order is always: [sync msgs] → [result] → [shell prompt].
+      // Skipped silently if no pem or scripts dir is configured.
+      void (async () => {
+        const [pem, scriptsDir] = await Promise.all([
+          connectionStore.get<string>('pemPath'),
+          scriptsSettingsStore.get<string>('directoryPath'),
+        ]);
+
+        if (!pem || !scriptsDir) return;
+
+        const initStore = useTerminalStore.getState();
+        initStore.setSyncLocked(true);
+        initStore.startSyncOutputBuffer();
+        initStore.writeSystemMessage(SYNC_INIT_MSG);
+        initStore.writeSystemMessage(SYNC_PROGRESS_MSG);
+
+        try {
+          const result = await scriptSync(pem, user, host, port, scriptsDir);
+          const buffered = useTerminalStore.getState().flushSyncOutputBuffer();
+          const s = useTerminalStore.getState();
+          s.writeSystemMessage(buildSyncCompleteBanner(result.uploaded.length, result.deleted.length));
+          if (buffered) s.terminal?.write(buffered);
+        } catch {
+          const buffered = useTerminalStore.getState().flushSyncOutputBuffer();
+          const s = useTerminalStore.getState();
+          s.writeSystemMessage(SYNC_ERROR_MSG);
+          if (buffered) s.terminal?.write(buffered);
+        } finally {
+          // Safety net: flush anything left if an error occurred before the explicit flush.
+          const remaining = useTerminalStore.getState().flushSyncOutputBuffer();
+          const s = useTerminalStore.getState();
+          if (remaining) s.terminal?.write(remaining);
+          s.setSyncLocked(false);
+        }
+      })();
     };
 
     const onFailed = () => {

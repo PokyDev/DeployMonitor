@@ -1,10 +1,12 @@
+use std::collections::HashMap;
+
 use russh::client::Handle;
 use russh_sftp::client::error::Error as SftpError;
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::{FileAttributes, StatusCode};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::error::AppError;
 use crate::services::ssh_connect::{connect_authenticated, SshHandler};
@@ -199,6 +201,145 @@ pub async fn delete_remote(
     close_sftp_session(handle, &sftp).await;
 
     Ok(existed)
+}
+
+#[derive(Serialize)]
+pub struct ScriptSyncResult {
+    pub uploaded: Vec<String>,
+    pub deleted: Vec<String>,
+    pub unchanged: u32,
+}
+
+/// Synchronises the remote `.deploy-monitor/scripts/` directory to exactly
+/// match the local `scripts_dir`. Local is the source of truth:
+///  - Scripts present locally but missing (or with differing content) on the
+///    remote are uploaded.
+///  - Scripts present remotely but absent locally are deleted.
+/// Opens a single SFTP session for all operations. Individual file failures
+/// are skipped rather than aborting the whole sync — the caller receives a
+/// summary of what succeeded.
+pub async fn sync_scripts(
+    pem_path: &str,
+    user: &str,
+    host: &str,
+    port: u16,
+    scripts_dir: &str,
+) -> Result<ScriptSyncResult, AppError> {
+    // 1. Read all local scripts.
+    let mut local_scripts: HashMap<String, Vec<u8>> = HashMap::new();
+    let mut dir = tokio::fs::read_dir(scripts_dir).await.map_err(|e| {
+        AppError::ScriptSyncFailed(format!("no se pudo leer el directorio local: {e}"))
+    })?;
+    while let Some(entry) = dir.next_entry().await.map_err(|e| {
+        AppError::ScriptSyncFailed(format!("error leyendo entradas del directorio: {e}"))
+    })? {
+        let ft = entry.file_type().await.map_err(|e| {
+            AppError::ScriptSyncFailed(format!("error obteniendo tipo de archivo: {e}"))
+        })?;
+        if !ft.is_file() {
+            continue;
+        }
+        if let Some(name) = entry.file_name().to_str() {
+            match tokio::fs::read(entry.path()).await {
+                Ok(bytes) => {
+                    local_scripts.insert(name.to_string(), bytes);
+                }
+                Err(_) => continue,
+            }
+        }
+    }
+
+    // 2. Open a single SFTP session for all remote operations.
+    let (handle, sftp) = open_sftp_session(pem_path, user, host, port).await?;
+
+    // 3. Ensure the remote scripts directory exists.
+    let _ = sftp.create_dir(".deploy-monitor").await;
+    let _ = sftp.create_dir(REMOTE_SCRIPTS_DIR).await;
+
+    // 4. List the remote directory.
+    let remote_entries: HashMap<String, u64> = match sftp.read_dir(REMOTE_SCRIPTS_DIR).await {
+        Ok(read_dir) => read_dir
+            .filter(|e| e.file_type().is_file())
+            .map(|e| (e.file_name(), e.metadata().len()))
+            .collect(),
+        Err(SftpError::Status(s)) if s.status_code == StatusCode::NoSuchFile => HashMap::new(),
+        Err(e) => {
+            close_sftp_session(handle, &sftp).await;
+            return Err(AppError::ScriptSyncFailed(format!(
+                "no se pudo listar scripts remotos: {e}"
+            )));
+        }
+    };
+
+    let mut uploaded: Vec<String> = Vec::new();
+    let mut deleted: Vec<String> = Vec::new();
+    let mut unchanged: u32 = 0;
+
+    // 5. Upload loop — local is source of truth.
+    for (name, local_bytes) in &local_scripts {
+        let remote_path = remote_script_path(name);
+        let local_size = local_bytes.len() as u64;
+
+        let needs_upload = match remote_entries.get(name) {
+            None => true,
+            Some(&remote_size) if remote_size != local_size => true,
+            Some(_) => {
+                // Same size — download remote content and compare byte-for-byte.
+                match sftp.open(remote_path.as_str()).await {
+                    Ok(mut remote_file) => {
+                        let mut remote_bytes = Vec::new();
+                        match remote_file.read_to_end(&mut remote_bytes).await {
+                            Ok(_) => remote_bytes != *local_bytes,
+                            Err(_) => true,
+                        }
+                    }
+                    Err(_) => true,
+                }
+            }
+        };
+
+        if !needs_upload {
+            unchanged += 1;
+            continue;
+        }
+
+        let upload_ok = async {
+            let mut file = sftp.create(remote_path.as_str()).await?;
+            for chunk in local_bytes.chunks(UPLOAD_CHUNK_SIZE) {
+                file.write_all(chunk).await?;
+            }
+            file.shutdown().await?;
+
+            let mut perms = FileAttributes::empty();
+            perms.permissions = Some(0o755);
+            let _ = sftp.set_metadata(remote_path.as_str(), perms).await;
+
+            Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+        }
+        .await;
+
+        if upload_ok.is_ok() {
+            uploaded.push(name.clone());
+        }
+    }
+
+    // 6. Delete loop — remove remote files absent from local.
+    for name in remote_entries.keys() {
+        if !local_scripts.contains_key(name) {
+            let remote_path = remote_script_path(name);
+            if sftp.remove_file(remote_path.as_str()).await.is_ok() {
+                deleted.push(name.clone());
+            }
+        }
+    }
+
+    close_sftp_session(handle, &sftp).await;
+
+    Ok(ScriptSyncResult {
+        uploaded,
+        deleted,
+        unchanged,
+    })
 }
 
 /// Renames `old_file_name` to `new_file_name` on the instance if the old one

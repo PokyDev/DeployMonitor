@@ -39,6 +39,27 @@ type TerminalStore = SshCallbacks & {
    */
   scriptOutputChunks: string[] | null;
 
+  /**
+   * True while the post-connection script sync is running. Input to the PTY
+   * is blocked during this window so the user cannot accidentally type
+   * commands into the terminal while the sync operates — see terminal.tsx's
+   * `term.onData()` guard.
+   */
+  syncLocked: boolean;
+  setSyncLocked: (v: boolean) => void;
+
+  /**
+   * When non-null, pty:data chunks are pushed here instead of being written to
+   * xterm. Ensures the remote shell's MOTD and initial prompt don't interleave
+   * with sync status messages — the caller flushes the buffer to xterm AFTER
+   * writing the completion/error message so the order is always:
+   *   [sync messages] → [completion] → [shell prompt]
+   */
+  syncOutputBuffer: string[] | null;
+  startSyncOutputBuffer: () => void;
+  /** Clears the buffer and returns its joined content for the caller to write. */
+  flushSyncOutputBuffer: () => string;
+
   /** True while an SSH session is active (button-triggered or manually detected). */
   sshConnected: boolean;
   /** True while waiting for pty:data patterns that confirm SSH connected/failed. */
@@ -83,6 +104,14 @@ type TerminalStore = SshCallbacks & {
   startScriptCapture: () => void;
   /** Stops capturing, clears the buffer, and returns the joined text. */
   stopScriptCapture: () => string;
+  /**
+   * Tells the pty:data handler to discard incoming bytes until the first \n
+   * is seen — that newline ends the shell's echo of the command we just sent.
+   * Called immediately before write(command) in runRemoteScript.
+   */
+  startEchoSuppression: () => void;
+  /** True while the pty:data handler is still consuming the echoed command line. */
+  suppressEcho: boolean;
 };
 
 export const useTerminalStore = create<TerminalStore>((set, get) => ({
@@ -92,6 +121,9 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
   pendingOutput: [],
   scriptDoneCb: null,
   scriptOutputChunks: null,
+  suppressEcho: false,
+  syncLocked: false,
+  syncOutputBuffer: null,
 
   sshConnected: false,
   sshDetecting: false,
@@ -117,8 +149,22 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
         return;
       }
 
+      // Suppress the shell's echo of the command we just sent. Everything up to
+      // and including the first \n is the echoed command line — discard it.
+      let payload = event.payload;
+      if (state.suppressEcho) {
+        const nlIdx = payload.indexOf('\n');
+        if (nlIdx === -1) {
+          // Still inside the echo line, no newline yet — discard entire chunk.
+          return;
+        }
+        payload = payload.slice(nlIdx + 1);
+        set({ suppressEcho: false });
+        if (payload.length === 0) return;
+      }
+
       if (state.scriptOutputChunks) {
-        state.scriptOutputChunks.push(event.payload);
+        state.scriptOutputChunks.push(payload);
       }
 
       // SSH lifecycle detection.
@@ -126,7 +172,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       // so passive / manually-typed SSH connections are also detected without needing
       // the keyboard-buffer path (which silently fails on tab completion and paste).
       if (!state.sshConnected) {
-        const signal = detectSshOutput(event.payload);
+        const signal = detectSshOutput(payload);
         if (signal === 'connected') {
           const timer = get().sshDetectTimer;
           if (timer) window.clearTimeout(timer);
@@ -141,7 +187,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
           get().sshFailedCb?.();
         }
       } else {
-        const signal = detectSshOutput(event.payload);
+        const signal = detectSshOutput(payload);
         // The sentinel check catches every disconnect reason the regex
         // above can't name ahead of time (idle timeout, dropped network,
         // killed remote session, ...): once the SSH child process exits,
@@ -149,14 +195,20 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
         if (
           signal === 'disconnected' ||
           signal === 'failed' ||
-          containsLocalPromptSentinel(event.payload)
+          containsLocalPromptSentinel(payload)
         ) {
           set({ sshConnected: false });
           get().sshExitCb?.();
         }
       }
 
-      state.terminal?.write(event.payload);
+      // Buffer output during sync so the shell MOTD/prompt doesn't arrive
+      // between the sync messages and the completion banner.
+      if (state.syncOutputBuffer !== null) {
+        state.syncOutputBuffer.push(payload);
+      } else {
+        state.terminal?.write(payload);
+      }
     });
   },
 
@@ -188,6 +240,16 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
   },
 
   unlock: () => set({ locked: false, pendingOutput: [] }),
+
+  setSyncLocked: (v) => set({ syncLocked: v }),
+
+  startSyncOutputBuffer: () => set({ syncOutputBuffer: [] }),
+
+  flushSyncOutputBuffer: () => {
+    const buffer = get().syncOutputBuffer ?? [];
+    set({ syncOutputBuffer: null });
+    return buffer.join('');
+  },
 
   setSshConnected: (v) => set({ sshConnected: v }),
 
@@ -254,9 +316,11 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
 
   stopScriptCapture: () => {
     const chunks = get().scriptOutputChunks ?? [];
-    set({ scriptOutputChunks: null });
+    set({ scriptOutputChunks: null, suppressEcho: false });
     return chunks.join('');
   },
+
+  startEchoSuppression: () => set({ suppressEcho: true }),
 }));
 
 /**
@@ -337,6 +401,7 @@ export function runRemoteScript(remotePath: string): Promise<RemoteScriptResult>
     });
 
     useTerminalStore.getState().startScriptCapture();
+    useTerminalStore.getState().startEchoSuppression();
     const command = `bash ${remotePath}; printf '\\033]633;DM-DONE;%s\\007' "$?"\r`;
     void useTerminalStore.getState().write(command);
   });

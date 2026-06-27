@@ -88,6 +88,9 @@ pub enum AppError {
 
     #[error("Failed to write run-history log: {0}")]
     ScriptLogWriteFailed(String),
+
+    #[error("Script sync failed: {0}")]
+    ScriptSyncFailed(String),
 }
 
 impl Serialize for AppError {
@@ -124,6 +127,7 @@ impl Serialize for AppError {
             AppError::RemoteRenameFailed(msg) => ("REMOTE_RENAME_FAILED", msg.clone()),
             AppError::ScriptLogReadFailed(msg) => ("SCRIPT_LOG_READ_FAILED", msg.clone()),
             AppError::ScriptLogWriteFailed(msg) => ("SCRIPT_LOG_WRITE_FAILED", msg.clone()),
+            AppError::ScriptSyncFailed(msg) => ("SCRIPT_SYNC_FAILED", msg.clone()),
         };
         let mut state = serializer.serialize_struct("AppError", 2)?;
         state.serialize_field("code", code)?;

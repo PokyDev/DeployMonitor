@@ -18,6 +18,7 @@ type HistoryLogTerminalProps = {
 export default function HistoryLogTerminal({ output }: HistoryLogTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -38,11 +39,13 @@ export default function HistoryLogTerminal({ output }: HistoryLogTerminalProps) 
     term.open(container);
     fitAddon.fit();
     termRef.current = term;
+    fitAddonRef.current = fitAddon;
 
     const observer = new ResizeObserver(() => fitAddon.fit());
     observer.observe(container);
 
     return () => {
+      fitAddonRef.current = null;
       observer.disconnect();
       term.dispose();
       termRef.current = null;
@@ -52,10 +55,14 @@ export default function HistoryLogTerminal({ output }: HistoryLogTerminalProps) 
   // Re-renders in place (no new instance) when the open entry changes — the
   // detail sidebar stays mounted across entry switches (see `DetailSidebar`
   // in history.tsx), so reusing the terminal avoids tearing down/recreating
-  // its DOM and canvas layers on every card click.
+  // its DOM and canvas layers on every card click. Re-fit after write: if the
+  // initial fit() ran before xterm's canvas had measured cell dimensions, the
+  // row count may be wrong; writing content triggers a render pass that settles
+  // cell sizes, so a second fit() here corrects any off-by-N startup race.
   useEffect(() => {
     termRef.current?.reset();
     termRef.current?.write(output);
+    fitAddonRef.current?.fit();
   }, [output]);
 
   return <div ref={containerRef} className="history-log-term__xterm" />;

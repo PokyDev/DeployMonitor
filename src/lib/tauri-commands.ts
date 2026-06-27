@@ -201,6 +201,34 @@ export async function scriptRemotePrepare(
   });
 }
 
+export type ScriptSyncResult = {
+  uploaded: string[];
+  deleted: string[];
+  unchanged: number;
+};
+
+/**
+ * Synchronises the remote `.deploy-monitor/scripts/` directory to match the
+ * local `scriptsDir`. Local is the source of truth — uploads missing/changed
+ * scripts, deletes orphans. Individual file failures are silently skipped;
+ * only connection-level failures throw { code, message }.
+ */
+export async function scriptSync(
+  pemPath: string,
+  user: string,
+  host: string,
+  port: number,
+  scriptsDir: string,
+): Promise<ScriptSyncResult> {
+  return await invoke<ScriptSyncResult>('script_sync', {
+    pemPath,
+    user,
+    host,
+    port,
+    scriptsDir,
+  });
+}
+
 /**
  * Best-effort remote cleanup, called alongside local script deletion.
  * Returns `false` (not an error) if the script was never uploaded. Throws

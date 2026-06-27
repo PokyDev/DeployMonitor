@@ -384,25 +384,41 @@ button.history-filter-trigger {
    terminal.tsx`), not hand-classified `<div>` lines, so real ANSI/SGR codes
    the script printed render exactly as they did live. `overflow: hidden`
    instead of the old `overflow-y: auto` — xterm.js owns its own scrollback
-   and scrollbar internally, a second outer scrollbar would just double up. ── */
+   and scrollbar internally, a second outer scrollbar would just double up.
+   Flex column so the xterm child fills the box cleanly — same pattern as
+   `.terminal__body` / `.terminal__xterm` in the interactive terminal. ── */
 .history-log-term {
   background: #0D0D0D;
   border: 1px solid #222;
   border-radius: var(--radius-lg);
-  padding: var(--space-3) var(--space-4);
   height: 360px;
   overflow: hidden;
-  font-family: var(--font-code);
-  font-size: 12px;
-  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
 }
 
+/* FitAddon measures this element (terminal.element.parentElement). Using
+   flex:1 + min-height:0 gives it a definite pixel height that FitAddon can
+   read via getComputedStyle. Padding lives on .xterm (see below) so
+   FitAddon subtracts it rather than counting it as available space. */
 .history-log-term__xterm {
-  width: 100%;
+  flex: 1;
+  min-height: 0;
+}
+
+.history-log-term__xterm .xterm {
   height: 100%;
+  padding: var(--space-3) var(--space-4);
+}
+
+/* xterm.css hard-codes .xterm-viewport to #000; match the panel bg so the
+   inset padding reads as one continuous surface. */
+.history-log-term__xterm .xterm-viewport {
+  background-color: #0D0D0D;
 }
 
 .history-log-term__placeholder {
+  padding: var(--space-3) var(--space-4);
   color: #8A8A8A;
   animation: dm-fade-in 180ms ease both;
 }
