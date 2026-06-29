@@ -540,6 +540,178 @@ button.history-filter-trigger {
   animation: dm-fade-in 180ms ease both;
 }
 
+/* ── Log terminal header — label + action buttons (copy / expand) ── */
+.history-log-term-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.history-log-term-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.history-log-term-copy-wrap {
+  position: relative;
+}
+
+.history-log-term-action {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
+}
+
+.history-log-term-action:hover {
+  background: var(--bg-overlay);
+  color: var(--text-secondary);
+  border-color: var(--border-subtle);
+}
+
+.history-log-term-action--copied {
+  color: var(--color-success-light);
+  border-color: rgba(61, 158, 104, 0.3);
+  background: rgba(61, 158, 104, 0.08);
+}
+
+/* Copy confirmation — appears above the copy button, auto-fades */
+.history-copy-toast {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  white-space: nowrap;
+  background: var(--bg-surface);
+  border: 1px solid rgba(61, 158, 104, 0.35);
+  border-radius: var(--radius-md);
+  color: var(--color-success-light);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 9px;
+  pointer-events: none;
+  box-shadow: var(--shadow-sm);
+  animation:
+    history-toast-in  150ms var(--ease-out) both,
+    history-toast-out 300ms var(--ease-out) 1700ms both;
+}
+
+@keyframes history-toast-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.94); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+
+@keyframes history-toast-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+/* ── Full-screen expanded terminal view ── */
+.history-log-expanded-overlay {
+  position: fixed;
+  inset: 0;
+  margin-top: 36px;
+  height: calc(100vh - 36px);
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(4px);
+  z-index: 500;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: var(--space-6);
+  animation: expanded-overlay-in 200ms var(--ease-out) both;
+}
+
+.history-log-expanded-overlay--closing {
+  animation: expanded-overlay-out 220ms var(--ease-out) both;
+}
+
+.history-log-expanded-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 1100px;
+  min-height: 0;
+  background: #0D0D0D;
+  border: 1px solid #2A2A2A;
+  border-radius: var(--radius-xl);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+  animation: expanded-panel-in 260ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.history-log-expanded-panel--closing {
+  animation: expanded-panel-out 220ms var(--ease-out) both;
+}
+
+.history-log-expanded-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid #1C1C1C;
+  flex: 0 0 auto;
+}
+
+.history-log-expanded__label {
+  color: #555;
+}
+
+.history-log-expanded__close {
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border-color: #262626;
+  color: #555;
+}
+
+.history-log-expanded__close:hover {
+  background: #1A1A1A;
+  border-color: #3A3A3A;
+  color: #E0E0E0;
+}
+
+.history-log-expanded-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+@keyframes expanded-overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes expanded-overlay-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+@keyframes expanded-panel-in {
+  from { transform: scale(0.86); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
+/* "inside-out" close: brief scale-up before shrinking away */
+@keyframes expanded-panel-out {
+  0%   { transform: scale(1);     opacity: 1; }
+  25%  { transform: scale(1.025); opacity: 0.9; }
+  100% { transform: scale(0.88);  opacity: 0; }
+}
+
 /* Minimized window (~700×600): the sidebar spans the full window height,
    so the log block still trades its height for the stat grid and head
    instead of relying entirely on the body's internal scroll. */
@@ -606,7 +778,8 @@ button.history-filter-trigger {
 @media (prefers-reduced-motion: reduce) {
   .history-sidebar-overlay,
   .history-sidebar,
-  .history-card__select {
+  .history-card__select,
+  .history-log-term-action {
     transition: none;
   }
 
@@ -615,7 +788,10 @@ button.history-filter-trigger {
   .history-empty,
   .history-search__clear,
   .history-selection-bar,
-  .history-ctx-menu {
+  .history-ctx-menu,
+  .history-copy-toast,
+  .history-log-expanded-overlay,
+  .history-log-expanded-panel {
     animation: none;
   }
 }

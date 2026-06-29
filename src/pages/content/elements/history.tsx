@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Check, FolderOpen, Search, Settings, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Check, Copy, FolderOpen, Maximize2, Search, Settings, Trash2, X } from 'lucide-react';
 import type { useScriptHistory, ExecutionStatus, HistoryEntry } from '../../../hooks/use-script-history';
 import { useHistoryFilters } from '../../../hooks/use-history-filters';
 import { useDragSelect } from '../../../hooks/use-drag-select';
@@ -8,11 +8,15 @@ import DirectoryPathField from './directory-path-field';
 import HistoryFilterSidebar, { HistoryFilterDrawer } from './history-filter-sidebar';
 import HistorySlidePanel from './history-slide-panel';
 import HistoryLogTerminal from './history-log-terminal';
+import HistoryLogExpanded from './history-log-expanded';
 import HistoryContextMenu from './history-context-menu';
 import HistoryDragOverlay from './history-drag-overlay';
 import './history.css';
 
 type History = ReturnType<typeof useScriptHistory>;
+
+// Strips VT100/ANSI escape sequences so clipboard text is plain ASCII
+const ANSI_RE = /\x1b(?:\[[0-9;]*[A-Za-z]|[@-Z\\-_]|\][^\x07\x1b]*(?:\x07|\x1b\\))/g;
 
 const RESULT_BADGE: Record<ExecutionStatus, { variant: string; label: string }> = {
   success: { variant: 'normal', label: 'Éxito' },
@@ -35,9 +39,15 @@ function ResultBadge({ status }: { status: ExecutionStatus }) {
 function DetailSidebar({ history }: { history: History }) {
   const { selected, close, outputLoading } = history;
   const [lastEntry, setLastEntry] = useState<HistoryEntry | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
 
   useEffect(() => {
-    if (selected) setLastEntry(selected);
+    if (selected) {
+      setLastEntry(selected);
+      setExpanded(false);
+      setCopyState('idle');
+    }
   }, [selected]);
 
   const entry = selected ?? lastEntry;
@@ -45,48 +55,93 @@ function DetailSidebar({ history }: { history: History }) {
 
   const isOpen = !!selected;
 
+  function handleCopy() {
+    if (!entry?.output || copyState === 'copied') return;
+    const plain = entry.output.replace(ANSI_RE, '');
+    void navigator.clipboard.writeText(plain);
+    setCopyState('copied');
+    setTimeout(() => setCopyState('idle'), 2000);
+  }
+
   return (
-    <HistorySlidePanel isOpen={isOpen} onClose={close} ariaLabel={`Detalle de ejecución de ${entry.scriptName}`}>
-      <div className="history-sidebar__head">
-        <button type="button" className="dm-icon-btn history-sidebar__back" onClick={close} title="Volver" aria-label="Volver">
-          <ArrowLeft size={16} strokeWidth={1.5} aria-hidden="true" />
-        </button>
-        <div className="history-sidebar__title">
-          <ExtensionIcon scriptName={entry.scriptName} variant="modal" />
-          <span>{entry.scriptName}</span>
-        </div>
-      </div>
-      <div className="history-sidebar__body">
-        <div className="history-stat-grid">
-          <div className="history-stat">
-            <span className="history-stat__key">Ejecutado por</span>
-            <span className="history-stat__value history-stat__value--gold">{entry.triggeredBy}</span>
-          </div>
-          <div className="history-stat">
-            <span className="history-stat__key">Estado</span>
-            <span className="history-stat__value"><ResultBadge status={entry.status} /></span>
-          </div>
-          <div className="history-stat">
-            <span className="history-stat__key">Duración</span>
-            <span className="history-stat__value">{entry.duration}</span>
-          </div>
-          <div className="history-stat">
-            <span className="history-stat__key">Fecha</span>
-            <span className="history-stat__value">{entry.timestamp}</span>
+    <>
+      <HistorySlidePanel isOpen={isOpen} onClose={close} ariaLabel={`Detalle de ejecución de ${entry.scriptName}`}>
+        <div className="history-sidebar__head">
+          <button type="button" className="dm-icon-btn history-sidebar__back" onClick={close} title="Volver" aria-label="Volver">
+            <ArrowLeft size={16} strokeWidth={1.5} aria-hidden="true" />
+          </button>
+          <div className="history-sidebar__title">
+            <ExtensionIcon scriptName={entry.scriptName} variant="modal" />
+            <span>{entry.scriptName}</span>
           </div>
         </div>
-        <div className="dm-label" style={{ marginBottom: 8 }}>Salida de terminal</div>
-        <div className="history-log-term">
-          {entry.output === undefined ? (
-            <div className="history-log-term__placeholder">
-              {outputLoading ? 'Cargando salida…' : 'Sin datos de salida.'}
+        <div className="history-sidebar__body">
+          <div className="history-stat-grid">
+            <div className="history-stat">
+              <span className="history-stat__key">Ejecutado por</span>
+              <span className="history-stat__value history-stat__value--gold">{entry.triggeredBy}</span>
             </div>
-          ) : (
-            <HistoryLogTerminal output={entry.output} />
-          )}
+            <div className="history-stat">
+              <span className="history-stat__key">Estado</span>
+              <span className="history-stat__value"><ResultBadge status={entry.status} /></span>
+            </div>
+            <div className="history-stat">
+              <span className="history-stat__key">Duración</span>
+              <span className="history-stat__value">{entry.duration}</span>
+            </div>
+            <div className="history-stat">
+              <span className="history-stat__key">Fecha</span>
+              <span className="history-stat__value">{entry.timestamp}</span>
+            </div>
+          </div>
+          <div className="history-log-term-header">
+            <div className="dm-label">Salida de terminal</div>
+            {entry.output !== undefined && (
+              <div className="history-log-term-actions">
+                <div className="history-log-term-copy-wrap">
+                  <button
+                    type="button"
+                    className={`history-log-term-action${copyState === 'copied' ? ' history-log-term-action--copied' : ''}`}
+                    onClick={handleCopy}
+                    title={copyState === 'copied' ? 'Copiado' : 'Copiar salida'}
+                    aria-label="Copiar salida de terminal"
+                  >
+                    {copyState === 'copied'
+                      ? <Check size={13} strokeWidth={2} aria-hidden="true" />
+                      : <Copy size={13} strokeWidth={1.5} aria-hidden="true" />
+                    }
+                  </button>
+                  {copyState === 'copied' && (
+                    <span className="history-copy-toast" role="status">Contenido copiado</span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="history-log-term-action"
+                  onClick={() => setExpanded(true)}
+                  title="Expandir vista"
+                  aria-label="Expandir salida de terminal"
+                >
+                  <Maximize2 size={13} strokeWidth={1.5} aria-hidden="true" />
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="history-log-term">
+            {entry.output === undefined ? (
+              <div className="history-log-term__placeholder">
+                {outputLoading ? 'Cargando salida…' : 'Sin datos de salida.'}
+              </div>
+            ) : (
+              <HistoryLogTerminal output={entry.output} />
+            )}
+          </div>
         </div>
-      </div>
-    </HistorySlidePanel>
+      </HistorySlidePanel>
+      {expanded && entry.output !== undefined && (
+        <HistoryLogExpanded output={entry.output} onClose={() => setExpanded(false)} />
+      )}
+    </>
   );
 }
 
