@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Check, FolderOpen, Search, Settings, Trash2, X } from 'lucide-react';
 import type { useScriptHistory, ExecutionStatus, HistoryEntry } from '../../../hooks/use-script-history';
 import { useHistoryFilters } from '../../../hooks/use-history-filters';
@@ -231,14 +231,46 @@ export default function HistoryView({ history }: HistoryProps) {
     onConfirm: () => void;
   } | null>(null);
 
+  // Set to true when a drag completes so the trailing `click` event the browser
+  // fires after pointerup doesn't immediately clear the just-committed selection.
+  const dragJustEndedRef = useRef(false);
+
   const handleDragEnd = useCallback((ids: string[]) => {
-    addToSelection(ids);
+    dragJustEndedRef.current = true;
+    if (ids.length > 0) addToSelection(ids);
   }, [addToSelection]);
 
   const { isDragging, dragRect, liveIds } = useDragSelect({
     enabled: selected === null && !filterDrawerOpen,
     onDragEnd: handleDragEnd,
   });
+
+  // Click on any area outside cards/buttons/selection-bar clears the selection.
+  // Uses `click` (not `pointerdown`) so drags that start from empty space don't
+  // accidentally clear the selection before the drag adds new items.
+  const hasSelection = selectedIds.size > 0;
+  useEffect(() => {
+    if (!hasSelection) return;
+
+    function onDocClick(e: MouseEvent) {
+      if (dragJustEndedRef.current) {
+        dragJustEndedRef.current = false;
+        return;
+      }
+      const target = e.target as HTMLElement;
+      if (
+        target.closest('button') ||
+        target.closest('input') ||
+        target.closest('[data-entry-id]') ||
+        target.closest('.history-ctx-menu') ||
+        target.closest('.history-selection-bar')
+      ) return;
+      clearSelection();
+    }
+
+    document.addEventListener('click', onDocClick);
+    return () => document.removeEventListener('click', onDocClick);
+  }, [hasSelection, clearSelection]);
 
   // `history` (the hook) lives in the parent (`content.tsx`) and outlives this
   // view's own mount/unmount as the user switches sections, so its one-time

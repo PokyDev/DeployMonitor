@@ -70,6 +70,7 @@ export function useDragSelect({ enabled, onDragEnd }: Options) {
 
     function onPointerDown(e: PointerEvent) {
       if (e.button !== 0) return;
+      if (e.clientY < 36) return; // titlebar — Tauri drag region causes spurious drags
       const target = e.target as HTMLElement;
       if (target.closest(IGNORE_SELECTOR)) return;
       startRef.current = { x: e.clientX, y: e.clientY };
@@ -102,8 +103,9 @@ export function useDragSelect({ enabled, onDragEnd }: Options) {
       if (!startRef.current) return;
       if (activeRef.current) {
         const rect = toRect(startRef.current.x, startRef.current.y, e.clientX, e.clientY);
-        const ids = hitTest(rect);
-        if (ids.length > 0) onDragEndRef.current(ids);
+        // Always notify so the consumer can suppress the trailing `click` event
+        // that browsers fire after pointerup, even when no cards were hit.
+        onDragEndRef.current(hitTest(rect));
       }
       cancel();
     }
