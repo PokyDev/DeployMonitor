@@ -19,9 +19,10 @@
 
   <br /><br />
 
-  ![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)
+  ![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11%20x64-lightgrey?style=flat-square)
   ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-  ![Status](https://img.shields.io/badge/Status-Active%20Development-orange?style=flat-square)
+  ![Status](https://img.shields.io/badge/Status-v0.1.0--beta%20%E2%80%94%20Initial%20Release-brightgreen?style=flat-square)
+  ![Release](https://img.shields.io/badge/Ciclo%20inicial-Completado%2029%2F06%2F2026-blue?style=flat-square)
 
   <br />
 </div>
@@ -30,22 +31,24 @@
 
 ## What is DeployMonitor?
 
-**DeployMonitor** is a cross-platform desktop application built with [Tauri V2](https://v2.tauri.app/) that centralizes SSH-based cloud infrastructure management in a single, secure, and fast native app.
+**DeployMonitor** is a Windows desktop application built with [Tauri V2](https://v2.tauri.app/) for personal use — it centralizes SSH-based cloud instance management and script automation in a single, secure, and fast native app.
 
-Connect to remote servers over SSH, monitor live metrics from a visual dashboard, run automation scripts with real-time streaming output, and interact directly through an integrated PTY terminal — all without leaving your desktop.
+Connect to remote servers over SSH, execute automation scripts with real-time terminal output, and review the full execution history with ANSI color support — all from your Windows desktop without a browser.
 
-> Credentials are stored locally using **Argon2id** hashing. `.pem` keys are never exposed to the renderer layer. All sensitive file operations happen exclusively in Rust.
+> `.pem` keys are never exposed to the renderer layer. All sensitive file operations happen exclusively in Rust. Settings persist locally via `tauri-plugin-store`.
+
+**v0.1.0-beta** marks the completion of the initial development cycle. See [RELEASE_NOTES.md](./RELEASE_NOTES.md) for the full feature list and installation instructions.
 
 ---
 
 ## Features
 
-- **SSH Connection Management** — Connect to cloud instances using password or public key (`.pem`) authentication via [russh](https://github.com/warp-tech/russh), a pure-Rust SSH implementation.
-- **Live Monitoring Dashboard** — Real-time CPU, memory, and system metrics visualized with interactive charts.
-- **Remote Script Execution** — Upload and run automation scripts on remote instances with live streaming output.
-- **Integrated PTY Terminal** — Full pseudo-terminal emulation with ANSI color support, keyboard shortcuts, and resize handling.
-- **Auto-Updates** — Cryptographically verified background updates via `tauri-plugin-updater`.
-- **Secure by Default** — No secrets leave the Rust core. Renderer has no FS access, no direct DB access, and no raw `.pem` content.
+- **SSH Connection Management** — Connect to cloud instances using public key (`.pem`) authentication via [russh](https://github.com/warp-tech/russh), a pure-Rust SSH implementation.
+- **Remote Script Execution** — Upload and run automation scripts on remote instances with live streaming output directly in the interactive terminal.
+- **Execution History** — Full log of every script run, persisted to disk as JSON with exit code, duration, and complete ANSI output. Viewable with real color rendering.
+- **Integrated PTY Terminal** — Full pseudo-terminal emulation with ANSI/SGR color support (`xterm.js`), keyboard shortcuts, and resize handling.
+- **Script Management** — Create, edit, rename, and delete scripts locally with automatic SFTP sync to the remote instance.
+- **Secure by Default** — No secrets leave the Rust core. Renderer has no direct FS access and no raw `.pem` content.
 
 ---
 
@@ -59,16 +62,16 @@ DeployMonitor follows a strict three-layer model enforced at the module boundary
 │  UI, state (Zustand), routing (Wouter)        │
 ├──────────────────────────────────────────────┤
 │  CORE  — Rust / Tauri V2 Commands            │
-│  SSH sessions, PTY, credentials, file I/O     │
+│  SSH sessions, PTY, script sync, file I/O     │
 ├──────────────────────────────────────────────┤
-│  DATA  — SQLite / sqlx (async)               │
-│  Instances, credentials, settings             │
+│  DATA  — JSON / JSONL files on disk          │
+│  Script run history, monitoring snapshots     │
 └──────────────────────────────────────────────┘
 ```
 
 - The **Client** communicates with Core exclusively via `invoke()` (commands) and `listen()` (events).
 - The **Core** owns all business logic, SSH sessions, and sensitive file reads.
-- The **Data** layer is accessed only from Core — never from the renderer.
+- The **Data** layer is plain JSON/JSONL files — no embedded database.
 
 ---
 
@@ -97,7 +100,7 @@ DeployMonitor follows a strict three-layer model enforced at the module boundary
 | SSH Client | `russh` | 0.46 |
 | SFTP | `russh-sftp` | 2.x |
 | PTY | `portable-pty` | 0.9.0 |
-| Database | `sqlx` (SQLite, async) | 0.9.0 |
+| Persistence | JSON / JSONL files on disk | — |
 | Serialization | `serde` + `serde_json` | 1.x |
 | Password Hashing | `argon2` | 0.5.3 |
 | Error Handling | `thiserror` + `anyhow` | 2.0.18 / 1.0.102 |
@@ -110,11 +113,10 @@ DeployMonitor follows a strict three-layer model enforced at the module boundary
 
 | Plugin | Version | Purpose |
 |---|---|---|
-| `tauri-plugin-dialog` | 2.7.1 | Native OS file picker for `.pem` selection |
-| `tauri-plugin-updater` | 2.10.1 | Auto-update with cryptographic signature verification |
-| `tauri-plugin-process` | 2.3.1 | App restart after update |
-| `tauri-plugin-log` | 2.8.0 | Unified renderer + Rust logging |
-| `tauri-plugin-os` | 2.3.2 | OS detection for platform-specific behavior |
+| `tauri-plugin-dialog` | 2.x | Native OS file/folder picker |
+| `tauri-plugin-store` | 2.x | Renderer-side key/value persistence (paths, settings) |
+| `tauri-plugin-log` | 2.x | Unified renderer + Rust logging |
+| `tauri-plugin-os` | 2.x | OS detection for platform-specific behavior |
 
 ---
 
@@ -209,11 +211,11 @@ cargo test
 
 | Concern | Approach |
 |---|---|
-| Credential storage | Argon2id hash in local SQLite — never plain-text |
-| `.pem` files | Path stored in DB; file read in Rust only — never passed to renderer |
+| `.pem` files | Path stored via `tauri-plugin-store`; file content read in Rust only — never passed to renderer |
 | Renderer capabilities | Declared explicitly in `src-tauri/capabilities/` |
-| IPC surface | Typed `invoke()` wrappers only — no raw calls in components |
-| Local storage | No `localStorage` / `sessionStorage` — `tauri-plugin-store` if needed |
+| IPC surface | Typed `invoke()` wrappers only in `src/lib/tauri-commands.ts` — no raw calls in components |
+| Local storage | No `localStorage` / `sessionStorage` — `tauri-plugin-store` for renderer persistence |
+| Secrets | No plain-text credentials on disk. No embedded database. |
 
 ---
 
@@ -221,9 +223,8 @@ cargo test
 
 | Platform | Status |
 |---|---|
-| macOS | Primary target |
-| Windows | Supported |
-| Linux | Supported (requires WebKitGTK) |
+| Windows 10 / 11 x64 | Supported — primary target |
+| macOS / Linux | Not tested in this release |
 
 ---
 
